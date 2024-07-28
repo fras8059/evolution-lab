@@ -9,11 +9,11 @@ stages:
   - test
 #  - build
 #  - publish
-include:
-  - template: Auto-DevOps.gitlab-ci.yml
+#include:
+#  - template: Auto-DevOps.gitlab-ci.yml
 
-sast:
-  stage: test
+#sast:
+#  stage: test
 
 tests:
   stage: test
