@@ -21,14 +21,14 @@ tests:
   script:
     - cargo test
 
-#build:amd64:
-#  stage: build
-#  image: rust
-#  script:
-#    - cargo build --release
-#  artifacts:
-#    paths:
-#      - target/release/basic
+build:amd64:
+ stage: build
+ image: rust
+ script:
+   - cargo build --release
+ artifacts:
+   paths:
+     - target/release/basic
 
 #rustdoc:
 #  stage: build
