@@ -7,7 +7,7 @@
 # See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
 stages:
   - test
-#  - build
+  - build
 #  - publish
 #include:
 #  - template: Auto-DevOps.gitlab-ci.yml
