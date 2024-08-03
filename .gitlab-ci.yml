@@ -12,8 +12,8 @@ stages:
 #include:
 #  - template: Auto-DevOps.gitlab-ci.yml
 
-#sast:
-#  stage: test
+sast:
+  stage: test
 
 tests:
   stage: test
