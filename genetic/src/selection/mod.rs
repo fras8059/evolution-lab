@@ -9,18 +9,21 @@ pub use selection_result::{SelectionError, SelectionResult};
 use std::cmp::Ordering;
 
 #[derive(Copy, Clone, Debug)]
-pub enum Selection {
+pub enum SelectionType {
     Chance,
     Ranking,
     Tournament(usize),
     Weight,
 }
 
-pub fn select_by_chance<State: Clone>(
+pub fn select_by_chance<State>(
     evaluations: &[Evaluation<State>],
     count: usize,
     rng: &mut impl RngWrapper,
-) -> SelectionResult {
+) -> SelectionResult
+where
+    State: Clone,
+{
     let len = evaluations.len();
     if count > len {
         return Err(SelectionError::InvalidSelection(count, len));
@@ -36,10 +39,10 @@ pub fn select_by_chance<State: Clone>(
     Ok(indices[0..count].to_vec())
 }
 
-pub fn select_by_rank<State: Clone>(
-    evaluations: &[Evaluation<State>],
-    count: usize,
-) -> SelectionResult {
+pub fn select_by_rank<State>(evaluations: &[Evaluation<State>], count: usize) -> SelectionResult
+where
+    State: Clone,
+{
     let len = evaluations.len();
     if count > len {
         return Err(SelectionError::InvalidSelection(count, len));
@@ -57,12 +60,15 @@ pub fn select_by_rank<State: Clone>(
     Ok(indices[0..count].to_vec())
 }
 
-pub fn select_by_tournament<State: Clone>(
+pub fn select_by_tournament<State>(
     evaluations: &[Evaluation<State>],
     count: usize,
     pool_size: usize,
     rng: &mut impl RngWrapper,
-) -> SelectionResult {
+) -> SelectionResult
+where
+    State: Clone,
+{
     let len = evaluations.len();
     if count > len {
         return Err(SelectionError::InvalidSelection(count, len));
@@ -93,11 +99,14 @@ pub fn select_by_tournament<State: Clone>(
     Ok(indices[0..count].to_vec())
 }
 
-pub fn select_by_weight<State: Clone>(
+pub fn select_by_weight<State>(
     evaluations: &[Evaluation<State>],
     count: usize,
     rng: &mut impl RngWrapper,
-) -> SelectionResult {
+) -> SelectionResult
+where
+    State: Clone,
+{
     let len = evaluations.len();
     if count > len {
         return Err(SelectionError::InvalidSelection(count, len));

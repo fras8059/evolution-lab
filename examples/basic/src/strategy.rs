@@ -1,4 +1,4 @@
-use genetic::Strategy;
+use genetic::individual::Strategy;
 use std::fmt::Debug;
 
 use rand::{distributions::Standard, thread_rng, Rng};
@@ -63,9 +63,9 @@ impl Strategy for MyStrategy {
             .collect::<Vec<_>>();
     }
 
-    fn init_states(&self, size: u32) -> Vec<Self::State> {
+    fn init_states(&self, population_size: usize) -> Vec<Self::State> {
         let mut rng = thread_rng();
-        (0..size)
+        (0..population_size)
             .map(|_| MyState {
                 value: (&mut rng)
                     .sample_iter(Standard)

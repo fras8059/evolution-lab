@@ -18,13 +18,19 @@ where
     rng: &'a mut T,
 }
 
-impl<'a, T: Rng> Random<'a, T> {
+impl<'a, T> Random<'a, T>
+where
+    T: Rng,
+{
     pub fn new(rng: &'a mut T) -> Self {
         Random { rng }
     }
 }
 
-impl<'a, T: Rng> RngWrapper for Random<'a, T> {
+impl<'a, T> RngWrapper for Random<'a, T>
+where
+    T: Rng,
+{
     fn gen_range<R>(&mut self, range: R) -> usize
     where
         R: SampleRange<usize>,
