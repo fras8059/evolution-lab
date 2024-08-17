@@ -1,5 +1,5 @@
 default:
-  image: $CI_REGISTRY/flo/my-rust-runner:latest
+  image: $CI_REGISTRY/flo/my-rust-runner:slim
   tags: [docker]
   cache:
     key: cargo-cache
@@ -7,8 +7,6 @@ default:
       - target/
       - ~/.cargo/registry
       - ~/.cargo/git
-  #before_script:
-  #  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
 
 stages:
   - build
@@ -21,15 +19,16 @@ stages:
 build:
   stage: build
   script:
-    - cargo build --release
-  artifacts:
-    paths:
-      - target/release/basic
+    - cargo make build
+#  artifacts:
+#    paths:
+#      - target/release/basic
 
 tests:
   stage: test
   script:
-    - cargo test
+    - cargo make test
+
 #rustdoc:
 #  stage: build
 #  script:
