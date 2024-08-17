@@ -7,8 +7,8 @@ default:
       - target/
       - ~/.cargo/registry
       - ~/.cargo/git
-  before_script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  #before_script:
+  #  - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
 
 stages:
   - build
