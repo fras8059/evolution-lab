@@ -2,11 +2,11 @@ default:
   image: $CI_REGISTRY/flo/my-rust-runner/my-rust-runner:latest
   tags: [docker]
   cache:
-  key: cargo-cache
-  paths:
-    - target/
-    - ~/.cargo/registry
-    - ~/.cargo/git
+    key: cargo-cache
+    paths:
+      - target/
+      - ~/.cargo/registry
+      - ~/.cargo/git
 
 stages:
   - build
