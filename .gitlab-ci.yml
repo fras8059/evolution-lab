@@ -8,8 +8,7 @@ default:
       - ~/.cargo/registry
       - ~/.cargo/git
   before_script:
-  - echo $CI_REGISTRY_PASSWORD | docker login gitlab.home:5050 -u $CI_REGISTRY_USER --password-stdin
-
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
 
 stages:
   - build
@@ -20,19 +19,17 @@ stages:
 #  stage: test
 
 build:
- stage: build
- script:
-   - cargo build --release
- artifacts:
-   paths:
-     - target/release/basic
+  stage: build
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/basic
 
 tests:
   stage: test
   script:
     - cargo test
-
-
 #rustdoc:
 #  stage: build
 #  script:
