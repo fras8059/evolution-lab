@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 common = { path = "../../common" }
 genetic = { path = "../../genetic" }
+strategies = { path = "../../strategies" }
 futures = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }

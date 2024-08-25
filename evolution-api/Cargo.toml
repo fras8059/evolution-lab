@@ -1,0 +1,11 @@
+[package]
+name = "evolution-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+genetic = { path = "../genetic" }
+strategies = { path = "../strategies" }
+actix-web = "4.9.0"
+futures = { workspace = true }
+serde = { version = "1.0.208", features = ["derive"] }

@@ -1,6 +1,13 @@
 [workspace]
 
-members = ["common", "examples/basic", "examples/tic-tac-toe", "genetic"]
+members = [
+    "common",
+    "examples/basic",
+    "examples/tic-tac-toe",
+    "genetic",
+    "evolution-api",
+    "strategies",
+]
 resolver = "2"
 
 [workspace.dependencies]

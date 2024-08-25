@@ -3,14 +3,14 @@
 #command = "openapi-generator-cli"
 #args = ["generate", "-i", "openapi/openapi.yaml", "-g", "rust", "-o", "api-service/src/generated"]
 
-[tasks.build_workspace]
-description = "Build the entire Rust workspace"
+#[tasks.build_workspace]
+#description = "Build the entire Rust workspace"
 #dependencies = ["generate_openapi"]
-command = "cargo"
-args = ["build", "--workspace"]
+#command = "cargo"
+#args = ["build", "--workspace"]
 
-[tasks.test_workspace]
-description = "Run tests after building"
-dependencies = ["build_workspace"]
-command = "cargo"
-args = ["test", "--workspace"]
+#[tasks.test_workspace]
+#description = "Run tests after building"
+#dependencies = ["build_workspace"]
+#command = "cargo"
+#args = ["test", "--workspace"]
