@@ -1,6 +1,10 @@
+use std::rc::Rc;
+
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use common::subject_observer::Subject;
 use futures::executor::block_on;
 use genetic::{evolution::EvolutionEngine, selection::SelectionType};
+use genetic_ext::StatsdGateway;
 use serde::Deserialize;
 use strategies::my_strategy::MyStrategy;
 
@@ -14,15 +18,15 @@ async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
     let bytes = target.as_bytes();
     let threshold = bytes.len() as f32;
 
-    let mut runner = EvolutionEngine::new(SelectionType::Ranking, 128, |_, fitnesses| {
+    let mut engine = EvolutionEngine::new(SelectionType::Ranking, 5, |_, fitnesses| {
         fitnesses.iter().any(|&fitness| fitness >= threshold)
     });
-    //let observer = Rc::new(MyObserver::new());
-    //runner.register_observer(observer.clone());
+    let gateway = Rc::new(StatsdGateway::new("graphite:8125"));
+    engine.register_observer(gateway.clone());
 
-    let result = block_on(runner.run(&MyStrategy::from(bytes)));
+    let result = block_on(engine.run(&MyStrategy::from(bytes)));
 
-    //runner.unregister_observer(observer);
+    engine.unregister_observer(gateway);
 
     match result {
         Ok(infos) => HttpResponse::Ok().body(format!(

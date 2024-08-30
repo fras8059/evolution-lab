@@ -5,6 +5,7 @@ members = [
     "examples/basic",
     "examples/tic-tac-toe",
     "genetic",
+    "genetic-ext",
     "evolution-api",
     "strategies",
 ]

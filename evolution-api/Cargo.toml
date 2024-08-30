@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+common = { path = "../common" }
 genetic = { path = "../genetic" }
+genetic-ext = { path = "../genetic-ext" }
 strategies = { path = "../strategies" }
 actix-web = "4.9.0"
 futures = { workspace = true }

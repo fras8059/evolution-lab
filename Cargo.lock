@@ -515,8 +515,10 @@ name = "evolution-api"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "common",
  "futures",
  "genetic",
+ "genetic-ext",
  "serde",
  "strategies",
 ]
@@ -661,6 +663,15 @@ dependencies = [
  "mockall",
  "rand",
  "thiserror",
+]
+
+[[package]]
+name = "genetic-ext"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "dipstick",
+ "genetic",
 ]
 
 [[package]]

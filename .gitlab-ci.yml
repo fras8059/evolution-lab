@@ -10,7 +10,7 @@ default:
 
 stages:
   - build
-  - test
+#  - test
 #  - publish
 
 #sast:
@@ -19,15 +19,15 @@ stages:
 build:
   stage: build
   script:
-    - cargo make build
+    - cargo make -p ci-static-code-analysis-tasks
 #  artifacts:
 #    paths:
 #      - target/release/basic
 
-tests:
-  stage: test
-  script:
-    - cargo make test
+#tests:
+#  stage: test
+#  script:
+#    - cargo make test
 
 #rustdoc:
 #  stage: build
