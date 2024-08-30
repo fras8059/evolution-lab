@@ -157,7 +157,7 @@ mod tests {
     }
 
     impl RngWrapper for RngTest {
-        fn gen_range<R>(&mut self, range: R) -> usize
+        fn gen_range<R>(&mut self, _: R) -> usize
         where
             R: rand::distributions::uniform::SampleRange<usize>,
         {
@@ -166,7 +166,7 @@ mod tests {
 
         fn sample_from_distribution(
             &mut self,
-            distribution: &rand::distributions::WeightedIndex<f32>,
+            _: &rand::distributions::WeightedIndex<f32>,
         ) -> usize {
             self.next()
         }
