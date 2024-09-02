@@ -6,6 +6,7 @@ use genetic::{
     selection::SelectionType,
 };
 use log::{error, info};
+use rand::thread_rng;
 use simple_logger::SimpleLogger;
 
 use futures::executor::block_on;
@@ -58,7 +59,7 @@ fn main() {
     let observer = Rc::new(MyObserver::new());
     runner.register_observer(observer.clone());
 
-    let result = block_on(runner.run(&MyStrategy::from(bytes)));
+    let result = block_on(runner.run(&MyStrategy::from_entropy(bytes), &mut thread_rng()));
 
     runner.unregister_observer(observer);
 

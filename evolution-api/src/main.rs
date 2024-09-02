@@ -5,6 +5,7 @@ use common::subject_observer::Subject;
 use futures::executor::block_on;
 use genetic::{evolution::EvolutionEngine, selection::SelectionType};
 use genetic_ext::StatsdGateway;
+use rand::thread_rng;
 use serde::Deserialize;
 use strategies::my_strategy::MyStrategy;
 
@@ -24,7 +25,7 @@ async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
     let gateway = Rc::new(StatsdGateway::new("graphite:8125"));
     engine.register_observer(gateway.clone());
 
-    let result = block_on(engine.run(&MyStrategy::from(bytes)));
+    let result = block_on(engine.run(&MyStrategy::from_entropy(bytes), &mut thread_rng()));
 
     engine.unregister_observer(gateway);
 

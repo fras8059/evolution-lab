@@ -10,4 +10,5 @@ genetic-ext = { path = "../genetic-ext" }
 strategies = { path = "../strategies" }
 actix-web = "4.9.0"
 futures = { workspace = true }
+rand = { workspace = true }
 serde = { version = "1.0.208", features = ["derive"] }

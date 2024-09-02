@@ -519,6 +519,7 @@ dependencies = [
  "futures",
  "genetic",
  "genetic-ext",
+ "rand",
  "serde",
  "strategies",
 ]

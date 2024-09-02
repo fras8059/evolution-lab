@@ -1,7 +1,7 @@
 use genetic::individual::Strategy;
-use std::fmt::Debug;
+use std::{cell::RefCell, fmt::Debug};
 
-use rand::{distributions::Standard, thread_rng, Rng};
+use rand::{distributions::Standard, rngs::StdRng, Rng, SeedableRng};
 
 #[derive(Clone, Debug)]
 pub struct MyState {
@@ -10,12 +10,21 @@ pub struct MyState {
 
 pub struct MyStrategy {
     target: Vec<u8>,
+    rng: RefCell<StdRng>,
 }
 
 impl MyStrategy {
-    pub fn from(target: &[u8]) -> Self {
+    pub fn from(target: &[u8], seed: u64) -> Self {
         MyStrategy {
             target: target.to_vec(),
+            rng: RefCell::new(StdRng::seed_from_u64(seed)),
+        }
+    }
+
+    pub fn from_entropy(target: &[u8]) -> Self {
+        MyStrategy {
+            target: target.to_vec(),
+            rng: RefCell::new(StdRng::from_entropy()),
         }
     }
 }
@@ -29,7 +38,7 @@ impl Strategy for MyStrategy {
     }
 
     fn crossover(&self, state1: &Self::State, state2: &Self::State) -> Self::State {
-        let mut rng = thread_rng();
+        let mut rng = self.rng.borrow_mut();
         let crossover_point = rng.gen_range(0..self.target.len());
         MyState {
             value: [
@@ -49,7 +58,7 @@ impl Strategy for MyStrategy {
     }
 
     fn mutate(&self, state: &mut Self::State) {
-        let mut rng = thread_rng();
+        let mut rng = self.rng.borrow_mut();
         state.value = state
             .value
             .iter()
@@ -64,10 +73,10 @@ impl Strategy for MyStrategy {
     }
 
     fn init_states(&self, population_size: usize) -> Vec<Self::State> {
-        let mut rng = thread_rng();
+        let mut rng = self.rng.borrow_mut();
         (0..population_size)
             .map(|_| MyState {
-                value: (&mut rng)
+                value: (&mut *rng)
                     .sample_iter(Standard)
                     .take(self.target.len())
                     .collect::<Vec<u8>>(),

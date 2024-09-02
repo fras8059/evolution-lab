@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
-use rand::thread_rng;
+use rand::Rng;
 
 use crate::{
     individual::Strategy,
@@ -68,6 +68,7 @@ where
     pub async fn run<T: Strategy<State = State>>(
         &mut self,
         strategy: &T,
+        rng: &mut impl Rng,
     ) -> EvolutionResult<State> {
         self.population_info.evaluations =
             to_evaluations(strategy.init_states(self.population_size));
@@ -93,7 +94,7 @@ where
             }
 
             let new_generation = selector
-                .select_couples(&self.population_info.evaluations, &mut thread_rng())?
+                .select_couples(&self.population_info.evaluations, rng)?
                 .into_iter()
                 .map(|(p1, p2)| {
                     let mut child = strategy.crossover(
