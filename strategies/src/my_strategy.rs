@@ -67,13 +67,13 @@ impl Strategy for MyStrategy {
         }
     }
 
-    fn mutate(&self, state: &mut Self::State) {
+    fn mutate(&self, state: &mut Self::State, mutation_rate: f32) {
         let mut rng = self.rng.borrow_mut();
         state.value = state
             .value
             .iter()
             .map(|&c| {
-                if rng.gen::<f64>() < 0.01f64 {
+                if rng.gen::<f32>() < mutation_rate {
                     rng.gen::<u8>()
                 } else {
                     c

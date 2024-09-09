@@ -6,9 +6,10 @@ use crate::Evaluation;
 use rand::distributions::WeightedIndex;
 use rng_wrapper::RngWrapper;
 pub use selection_result::{SelectionError, SelectionResult};
+use serde::Deserialize;
 use std::cmp::Ordering;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 pub enum SelectionType {
     Chance,
     Ranking,

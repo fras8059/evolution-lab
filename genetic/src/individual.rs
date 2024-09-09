@@ -12,5 +12,5 @@ pub trait Strategy {
 
     fn get_random_state(&self) -> Self::State;
 
-    fn mutate(&self, state: &mut Self::State);
+    fn mutate(&self, state: &mut Self::State, mutation_rate: f32);
 }

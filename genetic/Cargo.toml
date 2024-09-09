@@ -8,6 +8,7 @@ common = { path = "../common" }
 futures = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

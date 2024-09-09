@@ -3,7 +3,10 @@ use std::rc::Rc;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use common::subject_observer::Subject;
 use futures::executor::block_on;
-use genetic::{evolution::EvolutionEngine, selection::SelectionType};
+use genetic::{
+    evolution::{EvolutionEngine, EvolutionSettings},
+    selection::SelectionType,
+};
 use genetic_ext::StatsdGateway;
 use rand::thread_rng;
 use serde::Deserialize;
@@ -11,21 +14,38 @@ use strategies::my_strategy::MyStrategy;
 
 #[derive(Deserialize)]
 struct Parameters {
+    mutation_rate: Option<f32>,
+    population_size: Option<usize>,
+    selection_type: Option<SelectionType>,
     target: Option<String>,
 }
 
 async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
+    let mutation_rate = parameters.mutation_rate.unwrap_or(0.1);
+    let population_size = parameters.population_size.unwrap_or(100);
     let target = parameters.target.clone().unwrap_or("florent".to_string());
+    let selection_type = parameters.selection_type.unwrap_or(SelectionType::Weight);
+
     let bytes = target.as_bytes();
     let threshold = bytes.len() as f32;
 
-    let mut engine = EvolutionEngine::new(SelectionType::Ranking, 5, |_, fitnesses| {
-        fitnesses.iter().any(|&fitness| fitness >= threshold)
-    });
+    let settings = EvolutionSettings {
+        mutation_rate,
+        population_size,
+        selection_type,
+    };
+
     let gateway = Rc::new(StatsdGateway::new("graphite:8125"));
+
+    let mut engine = EvolutionEngine::default();
     engine.register_observer(gateway.clone());
 
-    let result = block_on(engine.run(&MyStrategy::from_entropy(bytes), &mut thread_rng()));
+    let result = block_on(engine.run(
+        &MyStrategy::from_entropy(bytes),
+        &settings,
+        |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
+        &mut thread_rng(),
+    ));
 
     engine.unregister_observer(gateway);
 

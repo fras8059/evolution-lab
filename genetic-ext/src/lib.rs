@@ -36,12 +36,11 @@ impl StatsdGateway {
     }
 }
 
-impl<State, F> Observer<EvolutionEngine<State, F>, EventType> for GraphiteGateway
+impl<State> Observer<EvolutionEngine<State>, EventType> for GraphiteGateway
 where
     State: Clone,
-    F: Fn(u64, &[f32]) -> bool,
 {
-    fn update(&self, source: &EvolutionEngine<State, F>, event: EventType) {
+    fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
         if event == EventType::Evaluation {
             let population_info = source.get_population_info();
             if let Some(max_fitness) = population_info
@@ -56,12 +55,11 @@ where
     }
 }
 
-impl<State, F> Observer<EvolutionEngine<State, F>, EventType> for StatsdGateway
+impl<State> Observer<EvolutionEngine<State>, EventType> for StatsdGateway
 where
     State: Clone,
-    F: Fn(u64, &[f32]) -> bool,
 {
-    fn update(&self, source: &EvolutionEngine<State, F>, event: EventType) {
+    fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
         if event == EventType::Evaluation {
             let population_info = source.get_population_info();
             if let Some(max_fitness) = population_info

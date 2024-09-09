@@ -2,7 +2,7 @@ use std::{env, rc::Rc};
 
 use dipstick::{Input, InputScope, Log, LogScope};
 use genetic::{
-    evolution::{EventType, EvolutionEngine},
+    evolution::{EventType, EvolutionEngine, EvolutionSettings},
     selection::SelectionType,
 };
 use log::{error, info};
@@ -26,11 +26,8 @@ impl MyObserver {
     }
 }
 
-impl<F> Observer<EvolutionEngine<MyState, F>, EventType> for MyObserver
-where
-    F: Fn(u64, &[f32]) -> bool,
-{
-    fn update(&self, source: &EvolutionEngine<MyState, F>, event: EventType) {
+impl Observer<EvolutionEngine<MyState>, EventType> for MyObserver {
+    fn update(&self, source: &EvolutionEngine<MyState>, event: EventType) {
         if event == EventType::Evaluation {
             let population_info = source.get_population_info();
             //trace!("{:?}:{:?}", event, population_info);
@@ -53,13 +50,22 @@ fn main() {
     let bytes = target.as_bytes();
     let threshold = bytes.len() as f32;
 
-    let mut runner = EvolutionEngine::new(SelectionType::Ranking, 128, |_, fitnesses| {
-        fitnesses.iter().any(|&fitness| fitness >= threshold)
-    });
+    let settings = EvolutionSettings {
+        mutation_rate: 0.1,
+        population_size: 128,
+        selection_type: SelectionType::Weight,
+    };
+
+    let mut runner = EvolutionEngine::default();
     let observer = Rc::new(MyObserver::new());
     runner.register_observer(observer.clone());
 
-    let result = block_on(runner.run(&MyStrategy::from_entropy(bytes), &mut thread_rng()));
+    let result = block_on(runner.run(
+        &MyStrategy::from_entropy(bytes),
+        &settings,
+        |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
+        &mut thread_rng(),
+    ));
 
     runner.unregister_observer(observer);
 

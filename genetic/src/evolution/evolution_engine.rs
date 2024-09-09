@@ -4,29 +4,27 @@ use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
 use rand::Rng;
 
-use crate::{
-    individual::Strategy,
-    selection::{selector::Selector, SelectionType},
-    Evaluation,
-};
+use crate::{individual::Strategy, selection::selector::Selector, Evaluation};
 
-use super::{EventType, EvolutionResult, Snapshot};
+use super::{EventType, EvolutionResult, EvolutionSettings, Snapshot};
 
-pub struct EvolutionEngine<State, F>
-where
-    F: Fn(u64, &[f32]) -> bool,
-{
+pub struct EvolutionEngine<State> {
     observers: SharedObservers<Self, EventType>,
-    selection: SelectionType,
     population_info: Snapshot<State>,
-    population_size: usize,
-    is_complete: F,
 }
 
-impl<State, F> Subject<EventType> for EvolutionEngine<State, F>
+impl<State> Default for EvolutionEngine<State> {
+    fn default() -> Self {
+        Self {
+            observers: Default::default(),
+            population_info: Default::default(),
+        }
+    }
+}
+
+impl<State> Subject<EventType> for EvolutionEngine<State>
 where
     State: Clone,
-    F: Fn(u64, &[f32]) -> bool,
 {
     fn register_observer(&mut self, observer: Rc<dyn Observer<Self, EventType>>) {
         self.observers.push(observer);
@@ -43,38 +41,30 @@ where
     }
 }
 
-impl<State, F> EvolutionEngine<State, F>
+impl<State> EvolutionEngine<State>
 where
     State: Clone,
-    F: Fn(u64, &[f32]) -> bool,
 {
-    pub fn new(selection: SelectionType, population_size: usize, is_complete: F) -> Self {
-        EvolutionEngine {
-            observers: vec![],
-            selection,
-            population_info: Snapshot {
-                generation: 0,
-                evaluations: vec![],
-            },
-            population_size,
-            is_complete,
-        }
-    }
-
     pub fn get_population_info(&self) -> Snapshot<State> {
         self.population_info.clone()
     }
 
-    pub async fn run<T: Strategy<State = State>>(
+    pub async fn run<T, F>(
         &mut self,
         strategy: &T,
+        settings: &EvolutionSettings,
+        is_complete: F,
         rng: &mut impl Rng,
-    ) -> EvolutionResult<State> {
-        let states = (0..self.population_size)
+    ) -> EvolutionResult<State>
+    where
+        T: Strategy<State = State>,
+        F: Fn(u64, &[f32]) -> bool,
+    {
+        let states = (0..settings.population_size)
             .map(|_| strategy.get_random_state())
             .collect::<Vec<_>>();
         self.population_info.evaluations = to_evaluations(states);
-        let selector = Selector::new(self.selection);
+        let selector = Selector::new(settings.selection_type);
         loop {
             self.notify_observers(EventType::NewGeneration);
             let challenge_runs = self
@@ -91,7 +81,7 @@ where
                 .for_each(|(i, &f)| self.population_info.evaluations[i].fitness = f);
             self.notify_observers(EventType::Evaluation);
 
-            if (self.is_complete)(self.population_info.generation, &fitnesses) {
+            if (is_complete)(self.population_info.generation, &fitnesses) {
                 return Ok(self.population_info.clone());
             }
 
@@ -103,7 +93,7 @@ where
                         &self.population_info.evaluations[p1].state,
                         &self.population_info.evaluations[p2].state,
                     );
-                    strategy.mutate(&mut child);
+                    strategy.mutate(&mut child, settings.mutation_rate);
                     child
                 })
                 .collect::<Vec<_>>();
