@@ -57,6 +57,16 @@ impl Strategy for MyStrategy {
             .count() as f32
     }
 
+    fn get_random_state(&self) -> Self::State {
+        let mut rng = self.rng.borrow_mut();
+        MyState {
+            value: (&mut *rng)
+                .sample_iter(Standard)
+                .take(self.target.len())
+                .collect::<Vec<u8>>(),
+        }
+    }
+
     fn mutate(&self, state: &mut Self::State) {
         let mut rng = self.rng.borrow_mut();
         state.value = state
@@ -70,17 +80,5 @@ impl Strategy for MyStrategy {
                 }
             })
             .collect::<Vec<_>>();
-    }
-
-    fn init_states(&self, population_size: usize) -> Vec<Self::State> {
-        let mut rng = self.rng.borrow_mut();
-        (0..population_size)
-            .map(|_| MyState {
-                value: (&mut *rng)
-                    .sample_iter(Standard)
-                    .take(self.target.len())
-                    .collect::<Vec<u8>>(),
-            })
-            .collect::<Vec<_>>()
     }
 }

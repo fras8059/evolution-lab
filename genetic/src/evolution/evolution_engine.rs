@@ -70,8 +70,10 @@ where
         strategy: &T,
         rng: &mut impl Rng,
     ) -> EvolutionResult<State> {
-        self.population_info.evaluations =
-            to_evaluations(strategy.init_states(self.population_size));
+        let states = (0..self.population_size)
+            .map(|_| strategy.get_random_state())
+            .collect::<Vec<_>>();
+        self.population_info.evaluations = to_evaluations(states);
         let selector = Selector::new(self.selection);
         loop {
             self.notify_observers(EventType::NewGeneration);

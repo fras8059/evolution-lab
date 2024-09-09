@@ -10,7 +10,7 @@ pub trait Strategy {
 
     fn evaluate(&self, score: &Self::Score) -> f32;
 
-    fn init_states(&self, population_size: usize) -> Vec<Self::State>;
+    fn get_random_state(&self) -> Self::State;
 
     fn mutate(&self, state: &mut Self::State);
 }
