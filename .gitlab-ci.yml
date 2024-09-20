@@ -1,5 +1,5 @@
 default:
-  image: $CI_REGISTRY/flo/my-rust-runner:slim
+  image: $CI_REGISTRY/flo/my-rust-runner:1.81-slim
   tags: [docker]
   cache:
     key: cargo-cache
