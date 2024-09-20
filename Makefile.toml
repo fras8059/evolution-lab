@@ -30,3 +30,9 @@ args = [
     "--output-dir",
     "target",
 ]
+
+[tasks.workspace-docs]
+install_crate = false
+toolchain = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}"
+command = "cargo"
+args = ["doc", "--no-deps", "--workspace", "--all-features"]

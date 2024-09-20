@@ -11,7 +11,7 @@ default:
 stages:
   - build
   - test
-#  - publish
+  - publish
 
 #sast:
 #  stage: test
@@ -35,13 +35,15 @@ code-coverage:
         coverage_format: cobertura
         path: target/cobertura.xml
     
-#rustdoc:
-#  stage: build
-#  script:
-#    - cargo doc
-#  artifacts:
-#    paths:
-#      - target/doc
+rustdoc:
+  stage: publish
+  script:
+    - cargo make workspace-docs-flow
+  artifacts:
+    paths:
+      - target/doc
+  only:
+    - main
 
 #pages:
 #  stage: publish
