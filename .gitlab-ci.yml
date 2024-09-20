@@ -10,7 +10,7 @@ default:
 
 stages:
   - build
-#  - test
+  - test
 #  - publish
 
 #sast:
@@ -24,11 +24,17 @@ build:
 #    paths:
 #      - target/release/basic
 
-#tests:
-#  stage: test
-#  script:
-#    - cargo make test
-
+code-coverage:
+  stage: test
+  script:
+    - cargo make code-coverage-xml
+  coverage: '/^\d+.\d+% coverage/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: target/cobertura.xml
+    
 #rustdoc:
 #  stage: build
 #  script:

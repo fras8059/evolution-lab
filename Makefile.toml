@@ -1,16 +1,32 @@
-#[tasks.generate_openapi]
-#description = "Generate Rust code from OpenAPI spec"
-#command = "openapi-generator-cli"
-#args = ["generate", "-i", "openapi/openapi.yaml", "-g", "rust", "-o", "api-service/src/generated"]
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 
-#[tasks.build_workspace]
-#description = "Build the entire Rust workspace"
-#dependencies = ["generate_openapi"]
-#command = "cargo"
-#args = ["build", "--workspace"]
+[tasks.code-coverage-xml]
+workspace = false
+description = "Run code coverage (XML report)"
+command = "cargo"
+args = [
+    "tarpaulin",
+    "--all-features",
+    "--workspace",
+    "--out",
+    "Xml",
+    "--ignore-tests",
+    "--output-dir",
+    "target",
+]
 
-#[tasks.test_workspace]
-#description = "Run tests after building"
-#dependencies = ["build_workspace"]
-#command = "cargo"
-#args = ["test", "--workspace"]
+[tasks.code-coverage-html]
+workspace = false
+description = "Run code coverage (HTML report)"
+command = "cargo"
+args = [
+    "tarpaulin",
+    "--workspace",
+    "--all-features",
+    "--out",
+    "Html",
+    "--ignore-tests",
+    "--output-dir",
+    "target",
+]
