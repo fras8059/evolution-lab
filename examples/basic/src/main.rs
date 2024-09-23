@@ -2,7 +2,9 @@ use std::{env, rc::Rc};
 
 use dipstick::{Input, InputScope, Log, LogScope};
 use genetic::{
-    evolution::{EventType, EvolutionEngine, EvolutionSettings},
+    evolution::{
+        EventType, EvolutionConfig, EvolutionEngine, GenerationRenewalConfig, GeneticRenewalParam,
+    },
     selection::SelectionType,
 };
 use log::{error, info};
@@ -50,10 +52,16 @@ fn main() {
     let bytes = target.as_bytes();
     let threshold = bytes.len() as f32;
 
-    let settings = EvolutionSettings {
-        mutation_rate: 0.1,
+    let settings = EvolutionConfig {
         population_size: 128,
-        selection_type: SelectionType::Weight,
+        generation_renewal_config: Some(GenerationRenewalConfig {
+            cloning: None,
+            crossover: Some(GeneticRenewalParam {
+                mutation_rate: None,
+                ratio: 1.0,
+                selection_type: SelectionType::Weight,
+            }),
+        }),
     };
 
     let mut runner = EvolutionEngine::default();
@@ -79,7 +87,7 @@ fn main() {
                 .enumerate()
                 .filter(|e| e.1.fitness >= threshold)
                 .map(|e| (e.0, unsafe {
-                    String::from_utf8_unchecked(e.1.state.value.clone())
+                    String::from_utf8_unchecked(e.1.genome.value.clone())
                 }))
                 .collect::<Vec<_>>()
         ),

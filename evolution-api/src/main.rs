@@ -4,7 +4,7 @@ use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use common::subject_observer::Subject;
 use futures::executor::block_on;
 use genetic::{
-    evolution::{EvolutionEngine, EvolutionSettings},
+    evolution::{EvolutionConfig, EvolutionEngine, GenerationRenewalConfig, GeneticRenewalParam},
     selection::SelectionType,
 };
 use genetic_ext::StatsdGateway;
@@ -14,25 +14,32 @@ use strategies::my_strategy::MyStrategy;
 
 #[derive(Deserialize)]
 struct Parameters {
-    mutation_rate: Option<f32>,
+    crossover_rate: Option<f32>,
+    crossover_mutation_rate: Option<f32>,
+    crossover_selection_type: Option<SelectionType>,
     population_size: Option<usize>,
-    selection_type: Option<SelectionType>,
     target: Option<String>,
 }
 
 async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
-    let mutation_rate = parameters.mutation_rate.unwrap_or(0.1);
     let population_size = parameters.population_size.unwrap_or(100);
     let target = parameters.target.clone().unwrap_or("florent".to_string());
-    let selection_type = parameters.selection_type.unwrap_or(SelectionType::Weight);
 
     let bytes = target.as_bytes();
     let threshold = bytes.len() as f32;
 
-    let settings = EvolutionSettings {
-        mutation_rate,
+    let settings = EvolutionConfig {
+        generation_renewal_config: Some(GenerationRenewalConfig {
+            cloning: None,
+            crossover: Some(GeneticRenewalParam {
+                mutation_rate: parameters.crossover_mutation_rate,
+                ratio: parameters.crossover_rate.unwrap_or(1.0),
+                selection_type: parameters
+                    .crossover_selection_type
+                    .unwrap_or(SelectionType::Weight),
+            }),
+        }),
         population_size,
-        selection_type,
     };
 
     let gateway = Rc::new(StatsdGateway::new("graphite:8125"));
@@ -59,7 +66,7 @@ async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
                 .enumerate()
                 .filter(|e| e.1.fitness >= threshold)
                 .map(|e| (e.0, unsafe {
-                    String::from_utf8_unchecked(e.1.state.value.clone())
+                    String::from_utf8_unchecked(e.1.genome.value.clone())
                 }))
                 .collect::<Vec<_>>()
         )),

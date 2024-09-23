@@ -19,3 +19,4 @@ rand = "0.8.5"
 simple_logger = "5.0.0"
 serde = { version = "1.0.208", features = ["derive"] }
 thiserror = "1.0.61"
+validator = { version = "0.18.1", features = ["derive"] }

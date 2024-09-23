@@ -1,303 +1,396 @@
 mod rng_wrapper;
-mod selection_result;
-pub mod selector;
+mod select_by_chance;
+mod select_by_rank;
+mod select_by_tournament;
+mod select_by_weight;
+
+use rand::Rng;
+use rng_wrapper::Random;
+use select_by_chance::select_by_chance;
+use select_by_rank::select_by_rank;
+use select_by_tournament::select_by_tournament;
+use select_by_weight::select_by_weight;
+use serde::Deserialize;
+use thiserror::Error;
 
 use crate::Evaluation;
-use rand::distributions::WeightedIndex;
-use rng_wrapper::RngWrapper;
-pub use selection_result::{SelectionError, SelectionResult};
-use serde::Deserialize;
-use std::cmp::Ordering;
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Error, Debug, PartialEq)]
+pub enum SelectionError {
+    #[error("Unable to select by weight: {0}")]
+    InvalidWeights(String),
+    #[error("Unable to select {0} genome(s) whereas only {1} is(are) available")]
+    OutOfRange(usize, usize),
+    #[error("Unable to select by rank {0} genome(s) whereas the max rank is {1}")]
+    OutOfRank(usize, usize),
+}
+
+pub type SelectionResult = Result<Vec<usize>, SelectionError>;
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Default)]
 pub enum SelectionType {
     Chance,
-    Ranking,
+    Ranking(usize),
     Tournament(usize),
+    #[default]
     Weight,
 }
 
-pub fn select_by_chance<State>(
-    evaluations: &[Evaluation<State>],
-    count: usize,
-    rng: &mut impl RngWrapper,
+pub fn select<G>(
+    evaluations: &[Evaluation<G>],
+    selection_count: usize,
+    selection_type: SelectionType,
+    rng: &mut impl Rng,
 ) -> SelectionResult
 where
-    State: Clone,
+    G: Clone,
 {
-    let len = evaluations.len();
-    if count > len {
-        return Err(SelectionError::InvalidSelection(count, len));
-    }
-
-    let mut indices = (0..len).collect::<Vec<_>>();
-    let max_toss = count.min(len - 1);
-    for rank in 0..max_toss {
-        let index = rng.gen_range(rank..len);
-        indices.swap(rank, index);
-    }
-
-    Ok(indices[0..count].to_vec())
-}
-
-pub fn select_by_rank<State>(evaluations: &[Evaluation<State>], count: usize) -> SelectionResult
-where
-    State: Clone,
-{
-    let len = evaluations.len();
-    if count > len {
-        return Err(SelectionError::InvalidSelection(count, len));
-    }
-
-    let mut indices = (0..len).collect::<Vec<_>>();
-    if count > 0 {
-        indices.sort_by(|&a, &b| {
-            evaluations[b]
-                .fitness
-                .partial_cmp(&evaluations[a].fitness)
-                .unwrap_or(Ordering::Equal)
-        });
-    }
-    Ok(indices[0..count].to_vec())
-}
-
-pub fn select_by_tournament<State>(
-    evaluations: &[Evaluation<State>],
-    count: usize,
-    pool_size: usize,
-    rng: &mut impl RngWrapper,
-) -> SelectionResult
-where
-    State: Clone,
-{
-    let len = evaluations.len();
-    if count > len {
-        return Err(SelectionError::InvalidSelection(count, len));
-    }
-
-    let mut indices = (0..len).collect::<Vec<_>>();
-    let max = count.min(len - 1);
-    for rank in 0..max {
-        let mut candidates = indices[rank..len].to_vec();
-        let mut pool = Vec::with_capacity(pool_size);
-        for _ in 0..pool_size {
-            let candidate = rng.gen_range(0..candidates.len());
-            pool.push(candidate);
-            candidates.swap_remove(candidate);
+    let mut random = Random::new(rng);
+    match selection_type {
+        SelectionType::Chance => select_by_chance(evaluations, selection_count, &mut random),
+        SelectionType::Ranking(max_rank) => {
+            select_by_rank(evaluations, selection_count, max_rank, &mut random)
         }
-        let winner = pool
-            .iter()
-            .map(|&i| (i, &evaluations[i]))
-            .max_by(|&a, &b| {
-                b.1.fitness
-                    .partial_cmp(&a.1.fitness)
-                    .unwrap_or(Ordering::Equal)
-            })
-            .unwrap()
-            .0;
-        indices.swap(rank, winner);
+        SelectionType::Tournament(pool_size) => {
+            select_by_tournament(evaluations, selection_count, pool_size, &mut random)
+        }
+        SelectionType::Weight => select_by_weight(evaluations, selection_count, &mut random),
     }
-    Ok(indices[0..count].to_vec())
 }
 
-pub fn select_by_weight<State>(
-    evaluations: &[Evaluation<State>],
-    count: usize,
-    rng: &mut impl RngWrapper,
-) -> SelectionResult
-where
-    State: Clone,
-{
-    let len = evaluations.len();
-    if count > len {
-        return Err(SelectionError::InvalidSelection(count, len));
-    }
-
-    let mut indices = (0..len).collect::<Vec<_>>();
-    let max_toss = count.min(len - 1);
-    if max_toss > 1 {
-        let mut values = evaluations.iter().map(|e| e.fitness).collect::<Vec<_>>();
-        for rank in 0..max_toss {
-            let total = values.iter().map(|&v| 0.01 + v).sum::<f32>();
-            let weights = values
-                .iter()
-                .map(|&v| (0.01 + v) / total)
-                .collect::<Vec<_>>();
-            let distribution = WeightedIndex::new(weights).expect("Fitnesses are invalid");
-            let index = rng.sample_from_distribution(&distribution);
-            indices.swap(rank, rank + index);
-            values.remove(index);
+pub fn select_couples<G: Clone>(
+    evaluations: &[Evaluation<G>],
+    couples_count: usize,
+    selection_type: SelectionType,
+    rng: &mut impl Rng,
+) -> Result<Vec<(usize, usize)>, SelectionError> {
+    let mut random = Random::new(rng);
+    let mut selector: Box<dyn FnMut() -> Result<Vec<_>, SelectionError>> = match selection_type {
+        SelectionType::Chance => Box::new(|| select_by_chance(evaluations, 2, &mut random)),
+        SelectionType::Ranking(max_rank) => {
+            Box::new(move || select_by_rank(evaluations, 2, max_rank, &mut random))
         }
-    }
-    Ok(indices[0..count].to_vec())
+        SelectionType::Tournament(pool_size) => {
+            Box::new(move || select_by_tournament(evaluations, 2, pool_size, &mut random))
+        }
+        SelectionType::Weight => Box::new(|| select_by_weight(evaluations, 2, &mut random)),
+    };
+
+    (0..couples_count)
+        .map(|_| selector().map(|arr| (arr[0], arr[1])))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RngWrapper;
+    use rand::{rngs::StdRng, SeedableRng};
+
     use crate::{
-        selection::{select_by_chance, select_by_rank, select_by_weight, SelectionError},
+        selection::{
+            rng_wrapper::Random, select_by_chance::select_by_chance,
+            select_by_rank::select_by_rank, select_by_tournament::select_by_tournament,
+            select_by_weight::select_by_weight, SelectionType,
+        },
         Evaluation,
     };
 
-    struct RngTest {
-        samples: Vec<usize>,
-        index: usize,
-    }
-
-    impl RngTest {
-        fn new(samples: Vec<usize>) -> Self {
-            RngTest { samples, index: 0 }
-        }
-
-        fn next(&mut self) -> usize {
-            let result = self.samples[self.index];
-            self.index = (self.index + 1) % self.samples.len();
-            result
-        }
-    }
-
-    impl RngWrapper for RngTest {
-        fn gen_range<R>(&mut self, _: R) -> usize
-        where
-            R: rand::distributions::uniform::SampleRange<usize>,
-        {
-            self.next()
-        }
-
-        fn sample_from_distribution(
-            &mut self,
-            _: &rand::distributions::WeightedIndex<f32>,
-        ) -> usize {
-            self.next()
-        }
-    }
+    use super::{select, select_couples};
 
     #[test]
-    fn test_select_by_chance_should_return_result() {
+    fn test_select() {
         let evaluations = vec![
             Evaluation {
-                state: 'a',
-                fitness: 1.0,
+                genome: 3,
+                fitness: 0.1,
             },
             Evaluation {
-                state: 'b',
-                fitness: 1.0,
+                genome: 5,
+                fitness: 0.4,
             },
             Evaluation {
-                state: 'c',
-                fitness: 1.0,
+                genome: 4,
+                fitness: 0.5,
+            },
+            Evaluation {
+                genome: 8,
+                fitness: 0.9,
             },
         ];
+        let max_rank = 3;
+        let seed = 152;
+        let selection_count = 3;
+        let pool_size = 2;
 
-        let mut rng_mock = RngTest::new(vec![2, 1, 0, 2]);
-        let result = select_by_chance(&evaluations, 0, &mut rng_mock);
-        assert_eq!(result, Ok(vec![]));
-        let result = select_by_chance(&evaluations, 3, &mut rng_mock);
-        assert_eq!(result, Ok(vec![2, 1, 0]));
-        let result = select_by_chance(&evaluations, 2, &mut rng_mock);
-        assert_eq!(result, Ok(vec![0, 2]));
+        // TODO use seedable rng
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result = select(
+            &evaluations,
+            selection_count,
+            SelectionType::Chance,
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            selection_count,
+            result.len(),
+            "Should return the required count for SelectionType::Chance"
+        );
+        assert_eq!(
+            select_by_chance(
+                &evaluations,
+                selection_count,
+                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+            )
+            .unwrap(),
+            result,
+            "Should use select_by_chance to match selection_type"
+        );
+
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result = select(
+            &evaluations,
+            selection_count,
+            SelectionType::Ranking(max_rank),
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            selection_count,
+            result.len(),
+            "Should return the required count for SelectionType::Ranking(_)"
+        );
+        assert_eq!(
+            select_by_rank(
+                &evaluations,
+                selection_count,
+                max_rank,
+                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+            )
+            .unwrap(),
+            result,
+            "Should use select_by_rank to match selection_type"
+        );
+
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result = select(
+            &evaluations,
+            selection_count,
+            SelectionType::Tournament(pool_size),
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            selection_count,
+            result.len(),
+            "Should return the required count for SelectionType::Tournament(_)"
+        );
+        assert_eq!(
+            select_by_tournament(
+                &evaluations,
+                selection_count,
+                pool_size,
+                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+            )
+            .unwrap(),
+            result,
+            "Should use select_by_tournament to match selection_type"
+        );
+
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result = select(
+            &evaluations,
+            selection_count,
+            SelectionType::Weight,
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            selection_count,
+            result.len(),
+            "Should return the required count for SelectionType::Weight"
+        );
+        assert_eq!(
+            select_by_weight(
+                &evaluations,
+                selection_count,
+                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+            )
+            .unwrap(),
+            result,
+            "Should use select_by_weight to match selection_type"
+        );
     }
 
     #[test]
-    fn test_select_by_chance_should_return_error_when_not_valid_count() {
+    fn test_select_couples() {
         let evaluations = vec![
             Evaluation {
-                state: 'a',
-                fitness: 1.0,
+                genome: 3,
+                fitness: 0.1,
             },
             Evaluation {
-                state: 'b',
-                fitness: 1.0,
+                genome: 5,
+                fitness: 0.4,
+            },
+            Evaluation {
+                genome: 4,
+                fitness: 0.5,
+            },
+            Evaluation {
+                genome: 8,
+                fitness: 0.9,
             },
         ];
+        let max_rank = 3;
+        let seed = 152;
+        let couples_count = 3;
+        let pool_size = 2;
 
-        let mut rng_mock = RngTest::new(vec![]);
-        let result = select_by_chance(&evaluations, 4, &mut rng_mock);
-        assert_eq!(result, Err(SelectionError::InvalidSelection(4, 2)));
-    }
+        // TODO use seedable rng
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
 
-    #[test]
-    fn test_select_by_rank_should_return_result() {
-        let evaluations = vec![
-            Evaluation {
-                state: 'a',
-                fitness: 2.0,
-            },
-            Evaluation {
-                state: 'b',
-                fitness: 5.0,
-            },
-            Evaluation {
-                state: 'c',
-                fitness: 1.0,
-            },
-            Evaluation {
-                state: 'd',
-                fitness: 1.0,
-            },
-        ];
+        // When
+        let result =
+            select_couples(&evaluations, couples_count, SelectionType::Chance, &mut rng).unwrap();
 
-        let result = select_by_rank(&evaluations, 0);
-        assert_eq!(result, Ok(vec![]));
-        let result = select_by_rank(&evaluations, 4);
-        assert_eq!(result, Ok(vec![1, 0, 2, 3]));
-        let result = select_by_rank(&evaluations, 2);
-        assert_eq!(result, Ok(vec![1, 0]));
-    }
-
-    #[test]
-    fn test_select_by_rank_should_return_error_when_not_valid_count() {
-        let evaluations = vec![
-            Evaluation {
-                state: 'a',
-                fitness: 1.0,
+        // Then
+        assert_eq!(
+            couples_count,
+            result.len(),
+            "Should return the required count for SelectionType::Chance"
+        );
+        assert_eq!(
+            {
+                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut random = Random::new(&mut rng);
+                (0..couples_count)
+                    .map(|_| {
+                        select_by_chance(&evaluations, 2, &mut random)
+                            .map(|couple| (couple[0], couple[1]))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>()
             },
-            Evaluation {
-                state: 'b',
-                fitness: 1.0,
+            result,
+            "Should use select_by_chance to match selection_type"
+        );
+
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result = select_couples(
+            &evaluations,
+            couples_count,
+            SelectionType::Ranking(max_rank),
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            couples_count,
+            result.len(),
+            "Should return the required count for SelectionType::Ranking(_)"
+        );
+        assert_eq!(
+            {
+                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut random = Random::new(&mut rng);
+                (0..couples_count)
+                    .map(|_| {
+                        select_by_rank(&evaluations, 2, max_rank, &mut random)
+                            .map(|couple| (couple[0], couple[1]))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>()
             },
-        ];
+            result,
+            "Should use select_by_rank to match selection_type"
+        );
 
-        let result = select_by_rank(&evaluations, 3);
-        assert_eq!(result, Err(SelectionError::InvalidSelection(3, 2)));
-    }
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
 
-    #[test]
-    fn test_select_by_weight_should_return_result() {
-        let evaluations = vec![
-            Evaluation {
-                state: 'a',
-                fitness: 1.0,
+        // When
+        let result = select_couples(
+            &evaluations,
+            couples_count,
+            SelectionType::Tournament(pool_size),
+            &mut rng,
+        )
+        .unwrap();
+
+        // Then
+        assert_eq!(
+            couples_count,
+            result.len(),
+            "Should return the required count for SelectionType::Tournament(_)"
+        );
+        assert_eq!(
+            {
+                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut random = Random::new(&mut rng);
+                (0..couples_count)
+                    .map(|_| {
+                        select_by_tournament(&evaluations, 2, pool_size, &mut random)
+                            .map(|couple| (couple[0], couple[1]))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>()
             },
-            Evaluation {
-                state: 'b',
-                fitness: 1.0,
+            result,
+            "Should use select_by_tournament to match selection_type"
+        );
+
+        // Given
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // When
+        let result =
+            select_couples(&evaluations, couples_count, SelectionType::Weight, &mut rng).unwrap();
+
+        // Then
+        assert_eq!(
+            couples_count,
+            result.len(),
+            "Should return the required count for SelectionType::Weight"
+        );
+        assert_eq!(
+            {
+                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut random = Random::new(&mut rng);
+                (0..couples_count)
+                    .map(|_| {
+                        select_by_weight(&evaluations, 2, &mut random)
+                            .map(|couple| (couple[0], couple[1]))
+                            .unwrap()
+                    })
+                    .collect::<Vec<_>>()
             },
-            Evaluation {
-                state: 'c',
-                fitness: 1.0,
-            },
-        ];
-
-        let mut rng_mock = RngTest::new(vec![2, 0, 0, 1]);
-        let result = select_by_weight(&evaluations, 0, &mut rng_mock);
-        assert_eq!(result, Ok(vec![]));
-        let result = select_by_weight(&evaluations, 3, &mut rng_mock);
-        assert_eq!(result, Ok(vec![2, 1, 0]));
-        let result = select_by_weight(&evaluations, 2, &mut rng_mock);
-        assert_eq!(result, Ok(vec![0, 2]));
-    }
-
-    #[test]
-    fn test_select_by_weight_should_return_error_when_not_valid_count() {
-        let evaluations = vec![Evaluation {
-            state: 'a',
-            fitness: 1.0,
-        }];
-
-        let mut rng_mock = RngTest::new(vec![]);
-        let result = select_by_weight(&evaluations, 2, &mut rng_mock);
-        assert_eq!(result, Err(SelectionError::InvalidSelection(2, 1)));
+            result,
+            "Should use select_by_weight to match selection_type"
+        );
     }
 }

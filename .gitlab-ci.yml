@@ -5,8 +5,6 @@ default:
     key: cargo-cache
     paths:
       - target/
-      - ~/.cargo/registry
-      - ~/.cargo/git
 
 stages:
   - build

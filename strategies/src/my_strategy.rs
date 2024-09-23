@@ -1,4 +1,4 @@
-use genetic::individual::Strategy;
+use genetic::Strategy;
 use std::{cell::RefCell, fmt::Debug};
 
 use rand::{distributions::Standard, rngs::StdRng, Rng, SeedableRng};
@@ -30,34 +30,30 @@ impl MyStrategy {
 }
 
 impl Strategy for MyStrategy {
-    type Score = Vec<u8>;
-    type State = MyState;
+    type G = MyState;
 
-    fn challenge(&self, subject: &Self::State) -> Self::Score {
-        subject.value.clone()
-    }
-
-    fn crossover(&self, state1: &Self::State, state2: &Self::State) -> Self::State {
+    fn crossover(&self, genomes: (&Self::G, &Self::G)) -> Self::G {
         let mut rng = self.rng.borrow_mut();
         let crossover_point = rng.gen_range(0..self.target.len());
         MyState {
             value: [
-                &state1.value[..crossover_point],
-                &state2.value[crossover_point..],
+                &genomes.0.value[..crossover_point],
+                &genomes.1.value[crossover_point..],
             ]
             .concat(),
         }
     }
 
-    fn evaluate(&self, score: &Self::Score) -> f32 {
-        score
+    fn evaluate(&self, genome: &Self::G) -> f32 {
+        genome
+            .value
             .iter()
             .zip(self.target.iter())
             .filter(|(a, b)| a == b)
             .count() as f32
     }
 
-    fn get_random_state(&self) -> Self::State {
+    fn generate_genome(&self) -> Self::G {
         let mut rng = self.rng.borrow_mut();
         MyState {
             value: (&mut *rng)
@@ -67,9 +63,9 @@ impl Strategy for MyStrategy {
         }
     }
 
-    fn mutate(&self, state: &mut Self::State, mutation_rate: f32) {
+    fn mutate(&self, genome: &mut Self::G, mutation_rate: f32) {
         let mut rng = self.rng.borrow_mut();
-        state.value = state
+        genome.value = genome
             .value
             .iter()
             .map(|&c| {
