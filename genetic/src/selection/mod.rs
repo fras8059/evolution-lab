@@ -83,7 +83,7 @@ pub fn select_couples<G: Clone>(
 
 #[cfg(test)]
 mod tests {
-    use rand::{rngs::StdRng, SeedableRng};
+    use common_test::get_seeded_rng;
 
     use crate::{
         selection::{
@@ -117,13 +117,11 @@ mod tests {
             },
         ];
         let max_rank = 3;
-        let seed = 152;
         let selection_count = 3;
         let pool_size = 2;
 
-        // TODO use seedable rng
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select(
@@ -144,7 +142,7 @@ mod tests {
             select_by_chance(
                 &evaluations,
                 selection_count,
-                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+                &mut Random::new(&mut get_seeded_rng().unwrap())
             )
             .unwrap(),
             result,
@@ -152,7 +150,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select(
@@ -174,7 +172,7 @@ mod tests {
                 &evaluations,
                 selection_count,
                 max_rank,
-                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+                &mut Random::new(&mut get_seeded_rng().unwrap())
             )
             .unwrap(),
             result,
@@ -182,7 +180,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select(
@@ -204,7 +202,7 @@ mod tests {
                 &evaluations,
                 selection_count,
                 pool_size,
-                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+                &mut Random::new(&mut get_seeded_rng().unwrap())
             )
             .unwrap(),
             result,
@@ -212,7 +210,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select(
@@ -233,7 +231,7 @@ mod tests {
             select_by_weight(
                 &evaluations,
                 selection_count,
-                &mut Random::new(&mut StdRng::seed_from_u64(seed))
+                &mut Random::new(&mut get_seeded_rng().unwrap())
             )
             .unwrap(),
             result,
@@ -262,13 +260,11 @@ mod tests {
             },
         ];
         let max_rank = 3;
-        let seed = 152;
         let couples_count = 3;
         let pool_size = 2;
 
-        // TODO use seedable rng
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result =
@@ -282,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             {
-                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut rng = &mut get_seeded_rng().unwrap();
                 let mut random = Random::new(&mut rng);
                 (0..couples_count)
                     .map(|_| {
@@ -297,7 +293,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select_couples(
@@ -316,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             {
-                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut rng = &mut get_seeded_rng().unwrap();
                 let mut random = Random::new(&mut rng);
                 (0..couples_count)
                     .map(|_| {
@@ -331,7 +327,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result = select_couples(
@@ -350,7 +346,7 @@ mod tests {
         );
         assert_eq!(
             {
-                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut rng = &mut get_seeded_rng().unwrap();
                 let mut random = Random::new(&mut rng);
                 (0..couples_count)
                     .map(|_| {
@@ -365,7 +361,7 @@ mod tests {
         );
 
         // Given
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = get_seeded_rng().unwrap();
 
         // When
         let result =
@@ -379,7 +375,7 @@ mod tests {
         );
         assert_eq!(
             {
-                let mut rng = &mut StdRng::seed_from_u64(seed);
+                let mut rng = &mut get_seeded_rng().unwrap();
                 let mut random = Random::new(&mut rng);
                 (0..couples_count)
                     .map(|_| {

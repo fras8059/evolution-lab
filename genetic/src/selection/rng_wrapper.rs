@@ -47,14 +47,15 @@ where
 mod tests {
     use std::ptr;
 
-    use rand::{distributions::WeightedIndex, thread_rng, Rng};
+    use common_test::get_seeded_rng;
+    use rand::{distributions::WeightedIndex, Rng};
 
     use super::{Random, RngWrapper};
 
     #[test]
     fn test_random_new_should_init_with_arg() {
         // Given
-        let mut rng = thread_rng();
+        let mut rng = get_seeded_rng().unwrap();
         let rng_ptr = &mut rng as *mut _;
 
         // When
@@ -66,9 +67,8 @@ mod tests {
 
     #[test]
     fn test_random_gen_range_should_respect_range() {
-        // TODO use seedable Rng
         // Given
-        let mut rng = thread_rng();
+        let mut rng = get_seeded_rng().unwrap();
         let low_b = rng.gen_range(0usize..10);
         let high_b = rng.gen_range(10..20);
         let mut random = Random::new(&mut rng);
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_random_sample_from_distribution() {
         // Given
-        let mut rng = thread_rng();
+        let mut rng = get_seeded_rng().unwrap();
         let mut random = Random::new(&mut rng);
         let weights = vec![1.0, 2.0, 3.0];
         let distribution = WeightedIndex::new(weights).unwrap();

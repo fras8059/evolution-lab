@@ -273,9 +273,10 @@ mod tests {
         selection::SelectionType,
         Evaluation, Strategy,
     };
+    use common_test::get_seeded_rng;
     use futures::executor::block_on;
     use mockall::{mock, predicate::eq};
-    use rand::thread_rng;
+    use rand::Rng;
 
     use super::{get_random_genomes, resolve_settings, run_challenge, EvolutionEngine};
 
@@ -318,7 +319,7 @@ mod tests {
             &strategy,
             &config,
             |generation, _| generation > 10,
-            &mut thread_rng(),
+            &mut get_seeded_rng().unwrap(),
         ));
 
         // Then
@@ -330,8 +331,7 @@ mod tests {
 
     #[test]
     fn test_evolution_engine_get_clones() {
-        // TODO use seedable
-        let mut rng = thread_rng();
+        let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
         engine.population_info = Snapshot {
             evaluations: vec![
@@ -392,8 +392,7 @@ mod tests {
 
     #[test]
     fn test_evolution_engine_get_offsprings() {
-        // TODO use seedable
-        let mut rng = thread_rng();
+        let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
         engine.population_info = Snapshot {
             evaluations: vec![
@@ -494,28 +493,18 @@ mod tests {
     #[test]
     fn test_to_evaluations() {
         // Given
-        let states = vec![1, 2, 3];
+        let mut rng = get_seeded_rng().unwrap();
+        let size = rng.gen_range(0..10);
+        let genomes = (0..size).map(|_| rng.gen()).collect::<Vec<i32>>();
+
         // When
-        let result = to_evaluations(states);
+        let result = to_evaluations(genomes.clone());
 
         // Then
-        assert_eq!(
-            vec![
-                Evaluation {
-                    fitness: 0.0,
-                    genome: 1
-                },
-                Evaluation {
-                    fitness: 0.0,
-                    genome: 2
-                },
-                Evaluation {
-                    fitness: 0.0,
-                    genome: 3
-                }
-            ],
-            result
-        );
+        assert_eq!(result.len(), genomes.len());
+        let result_states = result.iter().map(|e| e.genome).collect::<Vec<_>>();
+        assert_eq!(result_states, genomes);
+        assert!(result.iter().map(|e| e.fitness).all(|x| x == 0f32));
     }
 
     #[test]
