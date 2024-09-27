@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::rc::Rc;
 
 use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
@@ -15,14 +12,21 @@ use crate::{
 
 use super::{
     genetic_pool::GeneticPool, EventType, EvolutionConfig, EvolutionError, EvolutionResult,
-    EvolutionStatus, GenerationRenewalConfig, Snapshot,
+    GenerationRenewalConfig, Snapshot,
 };
 
-#[derive(Default)]
-pub struct EvolutionEngine<G> {
+pub struct EvolutionEngine<State> {
     observers: SharedObservers<Self, EventType>,
-    snapshot: Snapshot<G>,
-    status: Arc<Mutex<EvolutionStatus>>,
+    population_info: Snapshot<State>,
+}
+
+impl<State> Default for EvolutionEngine<State> {
+    fn default() -> Self {
+        Self {
+            observers: Default::default(),
+            population_info: Default::default(),
+        }
+    }
 }
 
 impl<State> Subject<EventType> for EvolutionEngine<State>
@@ -48,100 +52,34 @@ impl<G> EvolutionEngine<G>
 where
     G: Clone,
 {
-    pub fn snapshot(&self) -> Snapshot<G> {
-        self.snapshot.clone()
+    pub fn get_population_info(&self) -> Snapshot<G> {
+        self.population_info.clone()
     }
 
-    pub fn pause(&mut self) -> bool {
-        self.change_status(
-            EvolutionStatus::Pausing,
-            Some(&|status| status == EvolutionStatus::Running),
-        )
-    }
-
-    pub async fn resume<T, F>(
+    pub async fn run<T, F>(
         &mut self,
         strategy: &T,
         config: &EvolutionConfig,
         is_complete: F,
         rng: &mut impl Rng,
-        snapshot: Snapshot<G>,
-    ) -> EvolutionResult<G>
-    where
-        T: Strategy<G = G>,
-        F: Fn(u64, &[f32]) -> bool,
-    {
-        self.run(strategy, config, is_complete, rng, Some(snapshot))
-            .await
-    }
-
-    pub async fn start<T, F>(
-        &mut self,
-        strategy: &T,
-        config: &EvolutionConfig,
-        is_complete: F,
-        rng: &mut impl Rng,
-    ) -> EvolutionResult<G>
-    where
-        T: Strategy<G = G>,
-        F: Fn(u64, &[f32]) -> bool,
-    {
-        self.run(strategy, config, is_complete, rng, None).await
-    }
-
-    fn change_status<F>(&self, new_status: EvolutionStatus, additional_check: Option<&F>) -> bool
-    where
-        F: Fn(EvolutionStatus) -> bool,
-    {
-        let mut current_status = self.status.lock().unwrap();
-
-        (*current_status != new_status
-            && additional_check.map_or(true, |check| check(*current_status)))
-        .then(|| {
-            *current_status = new_status;
-            drop(current_status);
-            self.notify_observers(EventType::StatusChanged(new_status));
-        })
-        .is_some()
-    }
-
-    async fn run<T, F>(
-        &mut self,
-        strategy: &T,
-        config: &EvolutionConfig,
-        is_complete: F,
-        rng: &mut impl Rng,
-        snapshot: Option<Snapshot<G>>,
     ) -> EvolutionResult<G>
     where
         T: Strategy<G = G>,
         F: Fn(u64, &[f32]) -> bool,
     {
         config.validate().map_err(EvolutionError::InvalidSettings)?;
-        self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Initializing, None);
 
         let generation_renewal_config = config.generation_renewal_config.as_ref();
         let settings = resolve_settings(generation_renewal_config, config.population_size);
 
-        self.snapshot = snapshot.unwrap_or_else(|| {
-            let genomes = get_random_genomes(config.population_size, strategy);
-            let evaluations = to_evaluations(genomes);
-            Snapshot {
-                evaluations,
-                generation: 0,
-            }
-        });
-        self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Running, None);
+        let states = (0..config.population_size)
+            .map(|_| strategy.generate_genome())
+            .collect::<Vec<_>>();
+        self.population_info.evaluations = to_evaluations(states);
         loop {
-            if self.change_status(
-                EvolutionStatus::Paused,
-                Some(&|status| status == EvolutionStatus::Pausing),
-            ) {
-                break;
-            }
-            self.notify_observers(EventType::GenerationCreated);
+            self.notify_observers(EventType::NewGeneration);
             let challenge_runs = self
-                .snapshot
+                .population_info
                 .evaluations
                 .iter()
                 .map(|evaluation| run_challenge(&evaluation.genome, strategy));
@@ -151,19 +89,18 @@ where
             fitnesses
                 .iter()
                 .enumerate()
-                .for_each(|(i, &f)| self.snapshot.evaluations[i].fitness = f);
-            self.notify_observers(EventType::Evaluated);
+                .for_each(|(i, &f)| self.population_info.evaluations[i].fitness = f);
+            self.notify_observers(EventType::Evaluation);
 
-            if (is_complete)(self.snapshot.generation, &fitnesses) {
-                self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Completed, None);
-                break;
+            if (is_complete)(self.population_info.generation, &fitnesses) {
+                return Ok(self.population_info.clone());
             }
 
             let new_generation = self.get_new_generation(strategy, &settings, rng)?;
-            self.snapshot.evaluations = to_evaluations(new_generation);
-            self.snapshot.generation += 1;
+
+            self.population_info.evaluations = to_evaluations(new_generation);
+            self.population_info.generation += 1;
         }
-        Ok(self.snapshot.clone())
     }
 
     fn get_clones<T>(
@@ -177,7 +114,7 @@ where
     {
         let clones = if pool.count > 0 {
             let selected_indexes_iter = select(
-                &self.snapshot.evaluations,
+                &self.population_info.evaluations,
                 pool.count,
                 pool.selection_type,
                 rng,
@@ -188,14 +125,14 @@ where
             if pool.mutation_rate > 0.0 {
                 selected_indexes_iter
                     .map(|index| {
-                        let mut genome = self.snapshot.evaluations[index].genome.clone();
+                        let mut genome = self.population_info.evaluations[index].genome.clone();
                         strategy.mutate(&mut genome, pool.mutation_rate);
                         genome
                     })
                     .collect()
             } else {
                 selected_indexes_iter
-                    .map(|index| self.snapshot.evaluations[index].genome.clone())
+                    .map(|index| self.population_info.evaluations[index].genome.clone())
                     .collect()
             }
         } else {
@@ -215,7 +152,7 @@ where
     {
         let offsprings = if pool.count > 0 {
             let selected_indexes_iter = select_couples(
-                &self.snapshot.evaluations,
+                &self.population_info.evaluations,
                 pool.count,
                 pool.selection_type,
                 rng,
@@ -227,8 +164,8 @@ where
                 selected_indexes_iter
                     .map(|(p1, p2)| {
                         let mut offspring = strategy.crossover((
-                            &self.snapshot.evaluations[p1].genome,
-                            &self.snapshot.evaluations[p2].genome,
+                            &self.population_info.evaluations[p1].genome,
+                            &self.population_info.evaluations[p2].genome,
                         ));
                         strategy.mutate(&mut offspring, pool.mutation_rate);
 
@@ -239,8 +176,8 @@ where
                 selected_indexes_iter
                     .map(|(p1, p2)| {
                         strategy.crossover((
-                            &self.snapshot.evaluations[p1].genome,
-                            &self.snapshot.evaluations[p2].genome,
+                            &self.population_info.evaluations[p1].genome,
+                            &self.population_info.evaluations[p2].genome,
                         ))
                     })
                     .collect()
@@ -378,7 +315,7 @@ mod tests {
         let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
 
         // When
-        let result = block_on(engine.start(
+        let result = block_on(engine.run(
             &strategy,
             &config,
             |generation, _| generation > 10,
@@ -396,7 +333,7 @@ mod tests {
     fn test_evolution_engine_get_clones() {
         let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
-        engine.snapshot = Snapshot {
+        engine.population_info = Snapshot {
             evaluations: vec![
                 Evaluation {
                     fitness: 0.5,
@@ -457,7 +394,7 @@ mod tests {
     fn test_evolution_engine_get_offsprings() {
         let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
-        engine.snapshot = Snapshot {
+        engine.population_info = Snapshot {
             evaluations: vec![
                 Evaluation {
                     fitness: 0.5,
@@ -528,7 +465,7 @@ mod tests {
         let engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
 
         // When
-        let result = engine.snapshot();
+        let result = engine.get_population_info();
 
         // Then
         assert_eq!(Snapshot::<Vec<u8>>::default(), result);

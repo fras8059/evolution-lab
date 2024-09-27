@@ -47,7 +47,7 @@ async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
     let mut engine = EvolutionEngine::default();
     engine.register_observer(gateway.clone());
 
-    let result = block_on(engine.start(
+    let result = block_on(engine.run(
         &MyStrategy::from_entropy(bytes),
         &settings,
         |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),

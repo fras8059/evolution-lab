@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt::Debug};
 
 use rand::{distributions::Standard, rngs::StdRng, Rng, SeedableRng};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct MyState {
     pub value: Vec<u8>,
 }

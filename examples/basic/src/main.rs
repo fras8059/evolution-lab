@@ -30,8 +30,8 @@ impl MyObserver {
 
 impl Observer<EvolutionEngine<MyState>, EventType> for MyObserver {
     fn update(&self, source: &EvolutionEngine<MyState>, event: EventType) {
-        if event == EventType::Evaluated {
-            let population_info = source.snapshot();
+        if event == EventType::Evaluation {
+            let population_info = source.get_population_info();
             //trace!("{:?}:{:?}", event, population_info);
             for (index, evaluation) in population_info.evaluations.iter().enumerate() {
                 let gauge = self.log_scope.gauge(format!("fitness_{}", index).as_str());
@@ -68,7 +68,7 @@ fn main() {
     let observer = Rc::new(MyObserver::new());
     runner.register_observer(observer.clone());
 
-    let result = block_on(runner.start(
+    let result = block_on(runner.run(
         &MyStrategy::from_entropy(bytes),
         &settings,
         |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
