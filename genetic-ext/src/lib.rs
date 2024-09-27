@@ -41,8 +41,8 @@ where
     State: Clone,
 {
     fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
-        if event == EventType::Evaluation {
-            let population_info = source.get_population_info();
+        if event == EventType::Evaluated {
+            let population_info = source.snapshot();
             if let Some(max_fitness) = population_info
                 .evaluations
                 .iter()
@@ -60,8 +60,8 @@ where
     State: Clone,
 {
     fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
-        if event == EventType::Evaluation {
-            let population_info = source.get_population_info();
+        if event == EventType::Evaluated {
+            let population_info = source.snapshot();
             if let Some(max_fitness) = population_info
                 .evaluations
                 .iter()

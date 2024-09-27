@@ -7,10 +7,22 @@ use validator::{Validate, ValidationError, ValidationErrors};
 
 use crate::{selection::SelectionType, Evaluation};
 
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
+pub enum EvolutionStatus {
+    #[default]
+    New,
+    Initializing,
+    Running,
+    Pausing,
+    Paused,
+    Completed,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventType {
-    NewGeneration,
-    Evaluation,
+    Evaluated,
+    GenerationCreated,
+    StatusChanged(EvolutionStatus),
 }
 
 #[derive(Clone, Debug, Validate)]
@@ -49,19 +61,10 @@ pub enum EvolutionError {
 
 pub type EvolutionResult<State> = Result<Snapshot<State>, EvolutionError>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Snapshot<G> {
     pub generation: u64,
     pub evaluations: Vec<Evaluation<G>>,
-}
-
-impl<G> Default for Snapshot<G> {
-    fn default() -> Self {
-        Self {
-            generation: Default::default(),
-            evaluations: Default::default(),
-        }
-    }
 }
 
 fn validate_generation_renewal_config(
