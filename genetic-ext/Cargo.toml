@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 genetic = { path = "../genetic" }
-dipstick = "0.9.2"
+dipstick = { workspace = true }

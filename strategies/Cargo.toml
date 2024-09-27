@@ -6,3 +6,10 @@ edition = "2021"
 [dependencies]
 genetic = { path = "../genetic" }
 rand = { workspace = true }
+
+[dev-dependencies]
+common = { path = "../common" }
+dipstick = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+simple_logger = { workspace = true }

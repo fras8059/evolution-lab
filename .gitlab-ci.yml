@@ -1,47 +1,73 @@
+# include:
+#   - template: Jobs/SAST.gitlab-ci.yml
+
 default:
   image: $CI_REGISTRY/flo/my-rust-runner:1.81-slim
   tags: [docker]
-  cache:
-    key: cargo-cache
-    paths:
-      - target/
+
+.cargo-cache: &cargo-cache
+  key: cargo-cache
+  paths:
+      - .cargo/bin
+      - .cargo/registry/index
+      - .cargo/registry/cache
+
+.build-cache: &build-cache
+  key: build-$CI_COMMIT_REF_SLUG
+  paths: 
+    - target/debug
+    
+variables:
+  CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
 
 stages:
   - build
-  - test
+  # - test
   - publish
-
-#sast:
-#  stage: test
 
 build:
   stage: build
-  script:
-    - cargo make -p ci-static-code-analysis-tasks
-#  artifacts:
-#    paths:
-#      - target/release/basic
-
-code-coverage:
-  stage: test
-  script:
-    - cargo make code-coverage-xml
+  variables:
+    CARGO_MAKE_RUN_CHECK_FORMAT: "true"
+    CARGO_MAKE_RUN_CLIPPY: "true"
+    CARGO_MAKE_RUN_CODECOV: "true"
+    CARGO_MAKE_COVERAGE_PROVIDER: "tarpaulin"
+    CARGO_MAKE_SKIP_CODECOV: "true"
   coverage: '/^\d+.\d+% coverage/'
+  script:
+    - cargo make ci-flow
   artifacts:
     reports:
       coverage_report:
         coverage_format: cobertura
         path: target/cobertura.xml
-    
+  cache:
+    - <<: *cargo-cache
+    - <<: *build-cache
+    - key: coverage-$CI_COMMIT_REF_SLUG
+      paths: 
+        - target/tarpaulin-build/debug
+
+# semgrep-sast:
+#   stage: test
+#   rules:
+#     - if: $CI_COMMIT_BRANCH
+#       exists:
+#         - '**/*.rs'
+
 rustdoc:
   stage: publish
   script:
-    - cargo make workspace-docs-flow
+    - cargo make docs-flow
+  cache:
+    - <<: *cargo-cache
+    - <<: *build-cache
+      policy: pull
   artifacts:
     paths:
       - target/doc
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 
 #pages:
 #  stage: publish

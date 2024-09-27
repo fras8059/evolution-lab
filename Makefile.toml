@@ -1,38 +1,30 @@
 [env]
-CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+CARGO_MAKE_CARGO_VERBOSE_FLAGS = ""
 
-[tasks.code-coverage-xml]
-workspace = false
-description = "Run code coverage (XML report)"
+[config]
+default_to_workspace = false
+
+[tasks.pre-test]
+condition = { env_false = ["CARGO_MAKE_CI"] }
+
+[tasks.test-multi-phases-flow]
+condition = { env_false = ["CARGO_MAKE_CI"] }
+
+[tasks.post-test]
+condition = { env_false = ["CARGO_MAKE_CI"] }
+
+[tasks.coverage-tarpaulin.linux]
 command = "cargo"
 args = [
     "tarpaulin",
     "--all-features",
+    "--skip-clean",
     "--workspace",
     "--out",
     "Xml",
     "--ignore-tests",
     "--output-dir",
     "target",
+    "--target-dir",
+    "target/tarpaulin-build",
 ]
-
-[tasks.code-coverage-html]
-workspace = false
-description = "Run code coverage (HTML report)"
-command = "cargo"
-args = [
-    "tarpaulin",
-    "--workspace",
-    "--all-features",
-    "--out",
-    "Html",
-    "--ignore-tests",
-    "--output-dir",
-    "target",
-]
-
-[tasks.workspace-docs]
-install_crate = false
-toolchain = "${CARGO_MAKE_RUST_DEFAULT_TOOLCHAIN}"
-command = "cargo"
-args = ["doc", "--no-deps", "--workspace", "--all-features"]

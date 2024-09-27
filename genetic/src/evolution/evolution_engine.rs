@@ -1,4 +1,7 @@
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
@@ -12,21 +15,14 @@ use crate::{
 
 use super::{
     genetic_pool::GeneticPool, EventType, EvolutionConfig, EvolutionError, EvolutionResult,
-    GenerationRenewalConfig, Snapshot,
+    EvolutionStatus, GenerationRenewalConfig, Snapshot,
 };
 
-pub struct EvolutionEngine<State> {
+#[derive(Default)]
+pub struct EvolutionEngine<G> {
     observers: SharedObservers<Self, EventType>,
-    population_info: Snapshot<State>,
-}
-
-impl<State> Default for EvolutionEngine<State> {
-    fn default() -> Self {
-        Self {
-            observers: Default::default(),
-            population_info: Default::default(),
-        }
-    }
+    snapshot: Snapshot<G>,
+    status: Arc<Mutex<EvolutionStatus>>,
 }
 
 impl<State> Subject<EventType> for EvolutionEngine<State>
@@ -52,11 +48,18 @@ impl<G> EvolutionEngine<G>
 where
     G: Clone,
 {
-    pub fn get_population_info(&self) -> Snapshot<G> {
-        self.population_info.clone()
+    pub fn snapshot(&self) -> Snapshot<G> {
+        self.snapshot.clone()
     }
 
-    pub async fn run<T, F>(
+    pub fn halt(&mut self) -> bool {
+        self.change_status(
+            EvolutionStatus::Halting,
+            Some(&|status| status == EvolutionStatus::Running),
+        )
+    }
+
+    pub async fn start<T, F>(
         &mut self,
         strategy: &T,
         config: &EvolutionConfig,
@@ -67,19 +70,92 @@ where
         T: Strategy<G = G>,
         F: Fn(u64, &[f32]) -> bool,
     {
+        self.run(strategy, config, is_complete, rng, None).await
+    }
+
+    pub async fn start_from<T, F>(
+        &mut self,
+        strategy: &T,
+        config: &EvolutionConfig,
+        is_complete: F,
+        rng: &mut impl Rng,
+        snapshot: Snapshot<G>,
+    ) -> EvolutionResult<G>
+    where
+        T: Strategy<G = G>,
+        F: Fn(u64, &[f32]) -> bool,
+    {
+        self.run(strategy, config, is_complete, rng, Some(snapshot))
+            .await
+    }
+
+    fn change_status<F>(&self, new_status: EvolutionStatus, additional_check: Option<&F>) -> bool
+    where
+        F: Fn(EvolutionStatus) -> bool,
+    {
+        let mut current_status = self.status.lock().unwrap();
+
+        (*current_status != new_status
+            && additional_check.map_or(true, |check| check(*current_status)))
+        .then(|| {
+            *current_status = new_status;
+            drop(current_status);
+            self.notify_observers(EventType::StatusChanged(new_status));
+        })
+        .is_some()
+    }
+
+    async fn run<T, F>(
+        &mut self,
+        strategy: &T,
+        config: &EvolutionConfig,
+        is_complete: F,
+        rng: &mut impl Rng,
+        snapshot: Option<Snapshot<G>>,
+    ) -> EvolutionResult<G>
+    where
+        T: Strategy<G = G>,
+        F: Fn(u64, &[f32]) -> bool,
+    {
+        // Validate configuration
         config.validate().map_err(EvolutionError::InvalidSettings)?;
+
+        // Run only from fresh engine
+        if !self.change_status(
+            EvolutionStatus::Initializing,
+            Some(&|s| s == EvolutionStatus::New),
+        ) {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| EvolutionError::Lock(e.to_string()))?;
+            return Err(EvolutionError::InvalidStatus(status.to_owned()));
+        }
 
         let generation_renewal_config = config.generation_renewal_config.as_ref();
         let settings = resolve_settings(generation_renewal_config, config.population_size);
 
-        let states = (0..config.population_size)
-            .map(|_| strategy.generate_genome())
-            .collect::<Vec<_>>();
-        self.population_info.evaluations = to_evaluations(states);
+        self.snapshot = snapshot.unwrap_or_else(|| {
+            let genomes = get_random_genomes(config.population_size, strategy);
+            let evaluations = init_evaluations(genomes);
+            Snapshot {
+                evaluations,
+                generation: 0,
+            }
+        });
+        self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Running, None);
         loop {
-            self.notify_observers(EventType::NewGeneration);
+            // Try to halt the evolution if status Halting is set
+            if self.change_status(
+                EvolutionStatus::Halted,
+                Some(&|s| s == EvolutionStatus::Halting),
+            ) {
+                break;
+            }
+
+            self.notify_observers(EventType::GenerationCreated);
             let challenge_runs = self
-                .population_info
+                .snapshot
                 .evaluations
                 .iter()
                 .map(|evaluation| run_challenge(&evaluation.genome, strategy));
@@ -89,18 +165,19 @@ where
             fitnesses
                 .iter()
                 .enumerate()
-                .for_each(|(i, &f)| self.population_info.evaluations[i].fitness = f);
-            self.notify_observers(EventType::Evaluation);
+                .for_each(|(i, &f)| self.snapshot.evaluations[i].fitness = f);
+            self.notify_observers(EventType::Evaluated);
 
-            if (is_complete)(self.population_info.generation, &fitnesses) {
-                return Ok(self.population_info.clone());
+            if (is_complete)(self.snapshot.generation, &fitnesses) {
+                self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Completed, None);
+                break;
             }
 
             let new_generation = self.get_new_generation(strategy, &settings, rng)?;
-
-            self.population_info.evaluations = to_evaluations(new_generation);
-            self.population_info.generation += 1;
+            self.snapshot.evaluations = init_evaluations(new_generation);
+            self.snapshot.generation += 1;
         }
+        Ok(self.snapshot.clone())
     }
 
     fn get_clones<T>(
@@ -114,7 +191,7 @@ where
     {
         let clones = if pool.count > 0 {
             let selected_indexes_iter = select(
-                &self.population_info.evaluations,
+                &self.snapshot.evaluations,
                 pool.count,
                 pool.selection_type,
                 rng,
@@ -125,14 +202,14 @@ where
             if pool.mutation_rate > 0.0 {
                 selected_indexes_iter
                     .map(|index| {
-                        let mut genome = self.population_info.evaluations[index].genome.clone();
+                        let mut genome = self.snapshot.evaluations[index].genome.clone();
                         strategy.mutate(&mut genome, pool.mutation_rate);
                         genome
                     })
                     .collect()
             } else {
                 selected_indexes_iter
-                    .map(|index| self.population_info.evaluations[index].genome.clone())
+                    .map(|index| self.snapshot.evaluations[index].genome.clone())
                     .collect()
             }
         } else {
@@ -152,7 +229,7 @@ where
     {
         let offsprings = if pool.count > 0 {
             let selected_indexes_iter = select_couples(
-                &self.population_info.evaluations,
+                &self.snapshot.evaluations,
                 pool.count,
                 pool.selection_type,
                 rng,
@@ -164,8 +241,8 @@ where
                 selected_indexes_iter
                     .map(|(p1, p2)| {
                         let mut offspring = strategy.crossover((
-                            &self.population_info.evaluations[p1].genome,
-                            &self.population_info.evaluations[p2].genome,
+                            &self.snapshot.evaluations[p1].genome,
+                            &self.snapshot.evaluations[p2].genome,
                         ));
                         strategy.mutate(&mut offspring, pool.mutation_rate);
 
@@ -176,8 +253,8 @@ where
                 selected_indexes_iter
                     .map(|(p1, p2)| {
                         strategy.crossover((
-                            &self.population_info.evaluations[p1].genome,
-                            &self.population_info.evaluations[p2].genome,
+                            &self.snapshot.evaluations[p1].genome,
+                            &self.snapshot.evaluations[p2].genome,
                         ))
                     })
                     .collect()
@@ -240,7 +317,7 @@ fn resolve_settings(
     }
 }
 
-fn to_evaluations<G>(genomes: Vec<G>) -> Vec<Evaluation<G>> {
+fn init_evaluations<G>(genomes: Vec<G>) -> Vec<Evaluation<G>> {
     genomes
         .into_iter()
         .map(|genome| Evaluation {
@@ -265,20 +342,32 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        rc::Rc,
+        sync::{Arc, Mutex},
+    };
+
     use crate::{
         evolution::{
-            evolution_engine::to_evaluations, genetic_pool::GeneticPool, EvolutionConfig,
-            EvolutionError, GenerationRenewalConfig, GeneticRenewalParam, Snapshot,
+            genetic_pool::GeneticPool, EventType, EvolutionConfig, EvolutionError, EvolutionStatus,
+            GenerationRenewalConfig, GeneticRenewalParam, Snapshot,
         },
         selection::SelectionType,
         Evaluation, Strategy,
     };
+    use common::subject_observer::{Observer, Subject};
     use common_test::get_seeded_rng;
     use futures::executor::block_on;
-    use mockall::{mock, predicate::eq};
-    use rand::Rng;
+    use mockall::{
+        mock,
+        predicate::{always, eq},
+    };
+    use rand::{seq::IteratorRandom, Rng};
+    use strum::IntoEnumIterator;
 
-    use super::{get_random_genomes, resolve_settings, run_challenge, EvolutionEngine};
+    use super::{
+        get_random_genomes, init_evaluations, resolve_settings, run_challenge, EvolutionEngine,
+    };
 
     mock! {
         TestStrategy {}
@@ -297,10 +386,87 @@ mod tests {
 
     }
 
+    mock! {
+        TestObserver {}
+
+        impl Observer<EvolutionEngine<Vec<u8>>, EventType> for TestObserver {
+            fn update(&self, source: &EvolutionEngine<Vec<u8>>, event: EventType);
+        }
+
+    }
+
+    #[test]
+    fn test_evolution_engine_halt() {
+        // Given
+        let mut rng = get_seeded_rng().unwrap();
+        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let not_running = EvolutionStatus::iter()
+            .filter(|s| *s != EvolutionStatus::Running)
+            .choose(&mut rng)
+            .unwrap();
+
+        // When
+        engine.status = Arc::new(Mutex::new(not_running));
+        let result = engine.halt();
+        // Then
+        assert!(!result, "Should not halt when not running");
+
+        // When
+        engine.status = Arc::new(Mutex::new(EvolutionStatus::Running));
+        let result = engine.halt();
+        // Then
+        assert!(result, "Should halt when running");
+        assert_eq!(
+            EvolutionStatus::Halting,
+            engine.status.lock().unwrap().clone(),
+            "Should set state to Halting"
+        );
+    }
+
+    #[test]
+    fn test_evolution_engine_change_status() {
+        // Given
+        let mut rng = get_seeded_rng().unwrap();
+        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let statuses = EvolutionStatus::iter().choose_multiple(&mut rng, 3);
+        let mut observer = MockTestObserver::new();
+        observer.expect_update().times(2).return_const(());
+        engine.register_observer(Rc::new(observer));
+
+        // When
+        engine.status = Arc::new(Mutex::new(statuses[0]));
+        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[0], None);
+        // Then
+        assert!(!result, "Should not change the status when it's the same");
+
+        // When
+        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[1], None);
+        // Then
+        assert!(result, "Should change the status when it's not the same");
+
+        // When
+        let result = engine.change_status(statuses[0], Some(&|s| s != statuses[1]));
+        // Then
+        assert!(
+            !result,
+            "Should not change the status when additional check fails"
+        );
+
+        // When
+        let result = engine.change_status(statuses[0], Some(&|s| s == statuses[1]));
+        // Then
+        assert!(
+            result,
+            "Should change the status when additional check succeeds"
+        );
+    }
+
     #[test]
     fn test_evolution_engine_run() {
-        //Given
-        let strategy = MockTestStrategy::new();
+        // Given
+        let mut rng = get_seeded_rng().unwrap();
+        let population_size = rng.gen_range(10..128);
+        let mut strategy = MockTestStrategy::new();
         let config = EvolutionConfig {
             generation_renewal_config: Some(GenerationRenewalConfig {
                 cloning: Some(GeneticRenewalParam {
@@ -310,7 +476,7 @@ mod tests {
                 }),
                 crossover: None,
             }),
-            population_size: 64,
+            population_size,
         };
         let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
 
@@ -318,8 +484,9 @@ mod tests {
         let result = block_on(engine.run(
             &strategy,
             &config,
-            |generation, _| generation > 10,
-            &mut get_seeded_rng().unwrap(),
+            |generation, _| generation > 1,
+            &mut rng,
+            None,
         ));
 
         // Then
@@ -327,13 +494,66 @@ mod tests {
             matches!(result, Err(EvolutionError::InvalidSettings(_))),
             "Should validate configuration"
         );
+
+        // Given
+        let config = EvolutionConfig {
+            generation_renewal_config: None,
+            population_size,
+        };
+        strategy
+            .expect_generate_genome()
+            .times(2 * population_size)
+            .return_const(vec![1]);
+        strategy
+            .expect_evaluate()
+            .times(2 * population_size)
+            .return_const(0.5);
+        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let observer = build_observer_mock(&vec![
+            EventType::StatusChanged(EvolutionStatus::Initializing),
+            EventType::StatusChanged(EvolutionStatus::Running),
+            EventType::GenerationCreated,
+            EventType::Evaluated,
+            EventType::StatusChanged(EvolutionStatus::Completed),
+        ]);
+        engine.register_observer(Rc::new(observer));
+
+        // When
+        let result = block_on(engine.run(
+            &strategy,
+            &config,
+            |generation, _| generation > 0,
+            &mut rng,
+            None,
+        ));
+
+        // Then
+        assert!(
+            matches!(result, Ok(snapshot) if snapshot.generation == 1 && snapshot.evaluations.len() == population_size),
+            "Should have rigth snapshot when completed"
+        );
+
+        // When
+        let result = block_on(engine.run(
+            &strategy,
+            &config,
+            |generation, _| generation > 0,
+            &mut rng,
+            None,
+        ));
+
+        // Then
+        assert!(
+            matches!(result, Err(EvolutionError::InvalidStatus(_))),
+            "Should not run when status is not valid"
+        );
     }
 
     #[test]
     fn test_evolution_engine_get_clones() {
         let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
-        engine.population_info = Snapshot {
+        engine.snapshot = Snapshot {
             evaluations: vec![
                 Evaluation {
                     fitness: 0.5,
@@ -394,7 +614,7 @@ mod tests {
     fn test_evolution_engine_get_offsprings() {
         let mut rng = get_seeded_rng().unwrap();
         let mut engine = EvolutionEngine::<Vec<u8>>::default();
-        engine.population_info = Snapshot {
+        engine.snapshot = Snapshot {
             evaluations: vec![
                 Evaluation {
                     fitness: 0.5,
@@ -460,12 +680,12 @@ mod tests {
     }
 
     #[test]
-    fn test_evolution_info_population_info_should_be_defaulted_before_run() {
+    fn test_evolution_engine_snapshot_should_be_defaulted_before_run() {
         // Given
         let engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
 
         // When
-        let result = engine.get_population_info();
+        let result = engine.snapshot();
 
         // Then
         assert_eq!(Snapshot::<Vec<u8>>::default(), result);
@@ -491,14 +711,14 @@ mod tests {
     }
 
     #[test]
-    fn test_to_evaluations() {
+    fn test_init_evaluations() {
         // Given
         let mut rng = get_seeded_rng().unwrap();
         let size = rng.gen_range(0..10);
         let genomes = (0..size).map(|_| rng.gen()).collect::<Vec<i32>>();
 
         // When
-        let result = to_evaluations(genomes.clone());
+        let result = init_evaluations(genomes.clone());
 
         // Then
         assert_eq!(result.len(), genomes.len());
@@ -540,5 +760,18 @@ mod tests {
 
         // Then
         assert_eq!(count, result.len(), "Should relay on strategy");
+    }
+
+    fn build_observer_mock(events: &[EventType]) -> MockTestObserver {
+        let mut observer = MockTestObserver::new();
+
+        for event in events.iter().cloned() {
+            observer
+                .expect_update()
+                .with(always(), eq(event))
+                .return_const(());
+        }
+
+        observer
     }
 }

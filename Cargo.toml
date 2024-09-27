@@ -3,8 +3,6 @@
 members = [
     "common",
     "common-test",
-    "examples/basic",
-    "examples/tic-tac-toe",
     "genetic",
     "genetic-ext",
     "evolution-api",
@@ -13,11 +11,13 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+dipstick = "0.9.2"
 futures = "0.3.30"
 log = "0.4.21"
 mockall = "0.12.1"
 rand = "0.8.5"
 simple_logger = "5.0.0"
 serde = { version = "1.0.208", features = ["derive"] }
+strum = { version = "0.26.3", features = ["derive"] }
 thiserror = "1.0.61"
 validator = { version = "0.18.1", features = ["derive"] }

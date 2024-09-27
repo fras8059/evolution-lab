@@ -7,7 +7,7 @@ use genetic::{
     evolution::{EvolutionConfig, EvolutionEngine, GenerationRenewalConfig, GeneticRenewalParam},
     selection::SelectionType,
 };
-use genetic_ext::StatsdGateway;
+use genetic_ext::gateways::StatsdGateway;
 use rand::thread_rng;
 use serde::Deserialize;
 use strategies::my_strategy::MyStrategy;
@@ -42,12 +42,12 @@ async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
         population_size,
     };
 
-    let gateway = Rc::new(StatsdGateway::new("graphite:8125"));
+    let gateway = Rc::new(StatsdGateway::new("graphite:8125").unwrap());
 
     let mut engine = EvolutionEngine::default();
     engine.register_observer(gateway.clone());
 
-    let result = block_on(engine.run(
+    let result = block_on(engine.start(
         &MyStrategy::from_entropy(bytes),
         &settings,
         |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
