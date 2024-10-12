@@ -1,0 +1,10 @@
+.cargo/
+.git/
+.gitlab/
+.vscode/
+target/
+.gitlab-ci.yml
+docker-compose.yml
+Makefile.toml
+README.md
+recipe.json

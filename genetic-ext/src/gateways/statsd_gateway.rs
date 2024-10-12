@@ -3,6 +3,7 @@ use std::{fmt::Debug, io::Error, net::ToSocketAddrs};
 use common::subject_observer::Observer;
 use dipstick::{Input, Statsd};
 use genetic::evolution::{EventType, EvolutionEngine};
+use log::trace;
 
 use super::{BEST_EVAL, MY_PROXY};
 
@@ -32,6 +33,7 @@ where
                 .map(|e| e.fitness)
                 .reduce(f32::max)
             {
+                trace!("Sending best-eval metric: {}", max_fitness);
                 BEST_EVAL.value(max_fitness);
             }
         }

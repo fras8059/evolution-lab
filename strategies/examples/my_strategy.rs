@@ -9,11 +9,11 @@ use genetic::{
 };
 use log::{error, info};
 use rand::thread_rng;
-use simple_logger::SimpleLogger;
 
 use futures::executor::block_on;
 
 use common::subject_observer::{Observer, Subject};
+use simple_logger::SimpleLogger;
 use strategies::my_strategy::{MyState, MyStrategy};
 
 struct MyObserver {

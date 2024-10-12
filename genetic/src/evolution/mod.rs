@@ -1,12 +1,17 @@
 mod evolution_engine;
 mod genetic_pool;
 
+use std::sync::PoisonError;
+
 pub use evolution_engine::EvolutionEngine;
 use strum::{Display, EnumIter};
 use thiserror::Error;
 use validator::{Validate, ValidationError, ValidationErrors};
 
-use crate::{selection::SelectionType, Evaluation};
+use crate::{
+    selection::{SelectionError, SelectionType},
+    Evaluation,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Default, EnumIter, Display)]
 pub enum EvolutionStatus {
@@ -55,13 +60,19 @@ pub struct EvolutionConfig {
 #[derive(Error, Debug, PartialEq)]
 pub enum EvolutionError {
     #[error("Invalid selection: {0}")]
-    InvalidSelection(String),
+    InvalidSelection(#[from] SelectionError),
     #[error("Settings are not valid: {0}")]
-    InvalidSettings(ValidationErrors),
+    InvalidSettings(#[from] ValidationErrors),
     #[error("Unable to run evolution from status: {0}")]
     InvalidStatus(EvolutionStatus),
     #[error("Lock error: {0}")]
     Lock(String),
+}
+
+impl<T> From<PoisonError<T>> for EvolutionError {
+    fn from(err: PoisonError<T>) -> Self {
+        EvolutionError::Lock(format!("PoisonError: {}", err))
+    }
 }
 
 pub type EvolutionResult<State> = Result<Snapshot<State>, EvolutionError>;
@@ -87,10 +98,13 @@ fn validate_generation_renewal_config(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::PoisonError;
+
     use crate::selection::SelectionType;
 
     use super::{
-        validate_generation_renewal_config, GenerationRenewalConfig, GeneticRenewalParam, Snapshot,
+        validate_generation_renewal_config, EvolutionError, GenerationRenewalConfig,
+        GeneticRenewalParam, Snapshot,
     };
 
     #[test]
@@ -145,5 +159,13 @@ mod tests {
             matches!(result, Ok(())),
             "Should return Ok for valid config"
         );
+    }
+
+    #[test]
+    fn test_from() {
+        let error = PoisonError::new(1);
+        let result = EvolutionError::from(error);
+
+        assert!(matches!(result, EvolutionError::Lock(_)));
     }
 }

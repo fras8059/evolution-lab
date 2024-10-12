@@ -11,13 +11,20 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+actix-web = "4.9.0"
+config = "0.14.0"
 dipstick = "0.9.2"
+env_logger = "0.11.5"
 futures = "0.3.30"
 log = "0.4.21"
 mockall = "0.12.1"
 rand = "0.8.5"
-simple_logger = "5.0.0"
 serde = { version = "1.0.208", features = ["derive"] }
+simple_logger = "5.0.0"
 strum = { version = "0.26.3", features = ["derive"] }
+temp-env = "0.3.6"
 thiserror = "1.0.61"
+toml = "0.8.19"
+utoipa = { version = "4.2.3", features = ["actix_extras"] }
+utoipa-rapidoc = { version = "4.0.0", features = ["actix-web"] }
 validator = { version = "0.18.1", features = ["derive"] }

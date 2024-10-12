@@ -5,6 +5,7 @@ use std::{
 
 use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
+use log::{debug, trace};
 use rand::Rng;
 use validator::Validate;
 
@@ -52,7 +53,7 @@ where
         self.snapshot.clone()
     }
 
-    pub fn halt(&mut self) -> bool {
+    pub fn halt(&mut self) -> Result<bool, EvolutionError> {
         self.change_status(
             EvolutionStatus::Halting,
             Some(&|status| status == EvolutionStatus::Running),
@@ -89,20 +90,26 @@ where
             .await
     }
 
-    fn change_status<F>(&self, new_status: EvolutionStatus, additional_check: Option<&F>) -> bool
+    fn change_status<F>(
+        &self,
+        new_status: EvolutionStatus,
+        additional_check: Option<&F>,
+    ) -> Result<bool, EvolutionError>
     where
         F: Fn(EvolutionStatus) -> bool,
     {
-        let mut current_status = self.status.lock().unwrap();
+        let mut current_status = self.status.lock()?;
 
-        (*current_status != new_status
+        let result = (*current_status != new_status
             && additional_check.map_or(true, |check| check(*current_status)))
         .then(|| {
+            trace!("Changing status from {} to {}", current_status, new_status);
             *current_status = new_status;
             drop(current_status);
             self.notify_observers(EventType::StatusChanged(new_status));
         })
-        .is_some()
+        .is_some();
+        Ok(result)
     }
 
     async fn run<T, F>(
@@ -118,22 +125,21 @@ where
         F: Fn(u64, &[f32]) -> bool,
     {
         // Validate configuration
-        config.validate().map_err(EvolutionError::InvalidSettings)?;
+        config.validate()?;
 
         // Run only from fresh engine
         if !self.change_status(
             EvolutionStatus::Initializing,
             Some(&|s| s == EvolutionStatus::New),
-        ) {
-            let status = self
-                .status
-                .lock()
-                .map_err(|e| EvolutionError::Lock(e.to_string()))?;
-            return Err(EvolutionError::InvalidStatus(status.to_owned()));
+        )? {
+            let status = self.status.lock()?.to_owned();
+            debug!("Cannot run evolution from {} engine state", status);
+            return Err(EvolutionError::InvalidStatus(status));
         }
 
         let generation_renewal_config = config.generation_renewal_config.as_ref();
         let settings = resolve_settings(generation_renewal_config, config.population_size);
+        debug!("Running evolution with settings: {:?}", settings);
 
         self.snapshot = snapshot.unwrap_or_else(|| {
             let genomes = get_random_genomes(config.population_size, strategy);
@@ -143,13 +149,15 @@ where
                 generation: 0,
             }
         });
-        self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Running, None);
+        self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Running, None)?;
         loop {
+            trace!("Running generation {}", self.snapshot.generation);
             // Try to halt the evolution if status Halting is set
             if self.change_status(
                 EvolutionStatus::Halted,
                 Some(&|s| s == EvolutionStatus::Halting),
-            ) {
+            )? {
+                debug!("Interruption of evolution by detecting halt request");
                 break;
             }
 
@@ -169,7 +177,11 @@ where
             self.notify_observers(EventType::Evaluated);
 
             if (is_complete)(self.snapshot.generation, &fitnesses) {
-                self.change_status::<fn(EvolutionStatus) -> bool>(EvolutionStatus::Completed, None);
+                debug!("Completion reached");
+                self.change_status::<fn(EvolutionStatus) -> bool>(
+                    EvolutionStatus::Completed,
+                    None,
+                )?;
                 break;
             }
 
@@ -195,8 +207,7 @@ where
                 pool.count,
                 pool.selection_type,
                 rng,
-            )
-            .map_err(|e| EvolutionError::InvalidSelection(e.to_string()))?
+            )?
             .into_iter();
 
             if pool.mutation_rate > 0.0 {
@@ -233,8 +244,7 @@ where
                 pool.count,
                 pool.selection_type,
                 rng,
-            )
-            .map_err(|e| EvolutionError::InvalidSelection(e.to_string()))?
+            )?
             .into_iter();
 
             if pool.mutation_rate > 0.0 {
@@ -291,6 +301,7 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 struct ExecutionSettings {
     cloning_pool: GeneticPool,
     crossover_pool: GeneticPool,
@@ -396,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_evolution_engine_halt() {
+    fn test_evolution_engine_halt() -> Result<(), EvolutionError> {
         // Given
         let mut rng = get_seeded_rng().unwrap();
         let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
@@ -407,13 +418,13 @@ mod tests {
 
         // When
         engine.status = Arc::new(Mutex::new(not_running));
-        let result = engine.halt();
+        let result = engine.halt()?;
         // Then
         assert!(!result, "Should not halt when not running");
 
         // When
         engine.status = Arc::new(Mutex::new(EvolutionStatus::Running));
-        let result = engine.halt();
+        let result = engine.halt()?;
         // Then
         assert!(result, "Should halt when running");
         assert_eq!(
@@ -421,10 +432,12 @@ mod tests {
             engine.status.lock().unwrap().clone(),
             "Should set state to Halting"
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_evolution_engine_change_status() {
+    fn test_evolution_engine_change_status() -> Result<(), EvolutionError> {
         // Given
         let mut rng = get_seeded_rng().unwrap();
         let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
@@ -435,17 +448,17 @@ mod tests {
 
         // When
         engine.status = Arc::new(Mutex::new(statuses[0]));
-        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[0], None);
+        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[0], None)?;
         // Then
         assert!(!result, "Should not change the status when it's the same");
 
         // When
-        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[1], None);
+        let result = engine.change_status::<fn(EvolutionStatus) -> bool>(statuses[1], None)?;
         // Then
         assert!(result, "Should change the status when it's not the same");
 
         // When
-        let result = engine.change_status(statuses[0], Some(&|s| s != statuses[1]));
+        let result = engine.change_status(statuses[0], Some(&|s| s != statuses[1]))?;
         // Then
         assert!(
             !result,
@@ -453,12 +466,14 @@ mod tests {
         );
 
         // When
-        let result = engine.change_status(statuses[0], Some(&|s| s == statuses[1]));
+        let result = engine.change_status(statuses[0], Some(&|s| s == statuses[1]))?;
         // Then
         assert!(
             result,
             "Should change the status when additional check succeeds"
         );
+
+        Ok(())
     }
 
     #[test]

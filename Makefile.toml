@@ -4,6 +4,7 @@ CARGO_MAKE_CARGO_VERBOSE_FLAGS = ""
 [config]
 default_to_workspace = false
 
+# Built-in task overrides
 [tasks.pre-test]
 condition = { env_false = ["CARGO_MAKE_CI"] }
 
@@ -28,3 +29,33 @@ args = [
     "--target-dir",
     "target/tarpaulin-build",
 ]
+
+# Dedicated tasks
+[tasks.docker-build]
+description = "Build docker image(s)"
+command = "docker"
+args = ["compose", "build"]
+
+[tasks.local-up]
+description = "Deploy app to local environment"
+command = "docker"
+args = ["compose", "up", "-d"]
+dependencies = ["docker-build"]
+
+[tasks.local-up-deps-only]
+description = "Deploy deps to local environment"
+command = "docker"
+args = [
+    "compose",
+    "-f",
+    "compose.yml",
+    "-f",
+    "compose.deps-only.yml",
+    "up",
+    "-d",
+]
+
+[tasks.local-down]
+description = "Stop local environment"
+command = "docker"
+args = ["compose", "down"]

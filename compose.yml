@@ -1,0 +1,44 @@
+name: evolution-lab
+
+services:
+  evolution-api:
+    environment:
+      - RUST_LOG=info
+      - APP_STATSD_HOST=graphite
+    build:
+      context: .
+    ports:
+      - "8080:80"
+    depends_on:
+      - graphite-statsd
+
+  graphite-statsd:
+    container_name: graphite
+    restart: always
+    ports:
+      - 8081:80
+      - 2003-2004:2003-2004
+      - 2023-2024:2023-2024
+      - 8125:8125/udp
+      - 8126:8126
+    volumes:
+      - graphite-config:/opt/graphite/conf
+      - graphite-data:/opt/graphite/storage
+      - statsd-config:/opt/statsd/config
+    image: graphiteapp/graphite-statsd
+
+  grafana:
+    container_name: grafana
+    depends_on:
+      - graphite-statsd
+    ports:
+      - 3000:3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+    image: grafana/grafana-oss
+
+volumes:
+  grafana-data:
+  graphite-config:
+  graphite-data:
+  statsd-config:

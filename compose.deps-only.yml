@@ -1,0 +1,3 @@
+services:
+  evolution-api:
+    entrypoint: /bin/true

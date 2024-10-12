@@ -1,0 +1,4 @@
+[env]
+
+RUST_LOG = "debug"
+APP_SERVICE_PORT = "8080"

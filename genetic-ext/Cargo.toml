@@ -7,3 +7,4 @@ edition = "2021"
 common = { path = "../common" }
 genetic = { path = "../genetic" }
 dipstick = { workspace = true }
+log = { workspace = true }

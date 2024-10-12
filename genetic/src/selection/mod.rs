@@ -10,7 +10,7 @@ use select_by_chance::select_by_chance;
 use select_by_rank::select_by_rank;
 use select_by_tournament::select_by_tournament;
 use select_by_weight::select_by_weight;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::Evaluation;
@@ -27,7 +27,7 @@ pub enum SelectionError {
 
 pub type SelectionResult = Result<Vec<usize>, SelectionError>;
 
-#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum SelectionType {
     Chance,
     Ranking(usize),

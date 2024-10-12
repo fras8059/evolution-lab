@@ -1,85 +1,66 @@
-use std::rc::Rc;
+mod api;
+mod config;
 
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use common::subject_observer::Subject;
-use futures::executor::block_on;
-use genetic::{
-    evolution::{EvolutionConfig, EvolutionEngine, GenerationRenewalConfig, GeneticRenewalParam},
-    selection::SelectionType,
-};
-use genetic_ext::gateways::StatsdGateway;
-use rand::thread_rng;
-use serde::Deserialize;
-use strategies::my_strategy::MyStrategy;
+use std::io;
 
-#[derive(Deserialize)]
-struct Parameters {
-    crossover_rate: Option<f32>,
-    crossover_mutation_rate: Option<f32>,
-    crossover_selection_type: Option<SelectionType>,
-    population_size: Option<usize>,
-    target: Option<String>,
+use ::config::ConfigError;
+use actix_web::{middleware::Logger, web::Data, App, HttpServer};
+use api::ApiDoc;
+use config::{app::AppConfig, log};
+use thiserror::Error;
+use utoipa::OpenApi;
+use utoipa_rapidoc::RapiDoc;
+
+const API_DOC_PATH: &str = "/doc";
+const API_MANIFEST_PATH: &str = "/api-docs/openapi.json";
+
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("Unable to load configuration: {0}")]
+    InvalidAppConfig(#[from] ConfigError),
+    #[error("Unable to parse log config from embedded file config: {0}")]
+    InvalidLogConfigFile(#[from] toml::de::Error),
 }
 
-async fn hello_world(parameters: web::Query<Parameters>) -> impl Responder {
-    let population_size = parameters.population_size.unwrap_or(100);
-    let target = parameters.target.clone().unwrap_or("florent".to_string());
-
-    let bytes = target.as_bytes();
-    let threshold = bytes.len() as f32;
-
-    let settings = EvolutionConfig {
-        generation_renewal_config: Some(GenerationRenewalConfig {
-            cloning: None,
-            crossover: Some(GeneticRenewalParam {
-                mutation_rate: parameters.crossover_mutation_rate,
-                ratio: parameters.crossover_rate.unwrap_or(1.0),
-                selection_type: parameters
-                    .crossover_selection_type
-                    .unwrap_or(SelectionType::Weight),
-            }),
-        }),
-        population_size,
-    };
-
-    let gateway = Rc::new(StatsdGateway::new("graphite:8125").unwrap());
-
-    let mut engine = EvolutionEngine::default();
-    engine.register_observer(gateway.clone());
-
-    let result = block_on(engine.start(
-        &MyStrategy::from_entropy(bytes),
-        &settings,
-        |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
-        &mut thread_rng(),
-    ));
-
-    engine.unregister_observer(gateway);
-
-    match result {
-        Ok(infos) => HttpResponse::Ok().body(format!(
-            "{}-{:?}",
-            infos.generation,
-            infos
-                .evaluations
-                .iter()
-                .enumerate()
-                .filter(|e| e.1.fitness >= threshold)
-                .map(|e| (e.0, unsafe {
-                    String::from_utf8_unchecked(e.1.genome.value.clone())
-                }))
-                .collect::<Vec<_>>()
-        )),
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+impl From<AppError> for io::Error {
+    fn from(e: AppError) -> Self {
+        io::Error::new(io::ErrorKind::Other, e)
     }
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| {
-        App::new().route("/", web::get().to(hello_world)) // Define a route for the hello world handler
+async fn main() -> io::Result<()> {
+    log::init();
+
+    let app_config = AppConfig::new()?;
+    let bind_settings = (app_config.service_host.clone(), app_config.service_port);
+
+    let openapi = ApiDoc::openapi();
+
+    let data = Data::new(app_config);
+    HttpServer::new(move || {
+        App::new()
+            .app_data(data.clone())
+            .wrap(Logger::default())
+            .configure(api::v1::configure())
+            .service(RapiDoc::with_openapi(API_MANIFEST_PATH, openapi.clone()).path(API_DOC_PATH))
     })
-    .bind("127.0.0.1:8080")? // Bind the server to an address and port
+    .bind(bind_settings)?
     .run()
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::AppError;
+    use config::ConfigError;
+    use std::io::{self, ErrorKind};
+
+    #[test]
+    fn test_from() {
+        let error = AppError::InvalidAppConfig(ConfigError::Frozen);
+        let result = io::Error::from(error);
+
+        assert_eq!(ErrorKind::Other, result.kind());
+    }
 }
