@@ -6,12 +6,13 @@ use std::{
 use common::subject_observer::{Observer, SharedObservers, Subject};
 use futures::future::join_all;
 use log::{debug, trace};
-use rand::Rng;
+use rand::{distributions::Standard, Rng};
 use validator::Validate;
 
 use crate::{
+    adaptation::Strategy,
     selection::{select, select_couples},
-    Evaluation, Strategy,
+    Genome, IntoEvaluations,
 };
 
 use super::{
@@ -19,17 +20,21 @@ use super::{
     EvolutionStatus, GenerationRenewalConfig, Snapshot,
 };
 
+#[derive(Debug, Clone, Copy)]
+struct ExecutionSettings {
+    cloning_pool: GeneticPool,
+    crossover_pool: GeneticPool,
+    randoms_count: usize,
+}
+
 #[derive(Default)]
-pub struct EvolutionEngine<G> {
+pub struct EvolutionEngine {
     observers: SharedObservers<Self, EventType>,
-    snapshot: Snapshot<G>,
+    snapshot: Snapshot,
     status: Arc<Mutex<EvolutionStatus>>,
 }
 
-impl<State> Subject<EventType> for EvolutionEngine<State>
-where
-    State: Clone,
-{
+impl Subject<EventType> for EvolutionEngine {
     fn register_observer(&mut self, observer: Rc<dyn Observer<Self, EventType>>) {
         self.observers.push(observer);
     }
@@ -45,11 +50,8 @@ where
     }
 }
 
-impl<G> EvolutionEngine<G>
-where
-    G: Clone,
-{
-    pub fn snapshot(&self) -> Snapshot<G> {
+impl EvolutionEngine {
+    pub fn snapshot(&self) -> Snapshot {
         self.snapshot.clone()
     }
 
@@ -66,9 +68,9 @@ where
         config: &EvolutionConfig,
         is_complete: F,
         rng: &mut impl Rng,
-    ) -> EvolutionResult<G>
+    ) -> EvolutionResult
     where
-        T: Strategy<G = G>,
+        T: Strategy,
         F: Fn(u64, &[f32]) -> bool,
     {
         self.run(strategy, config, is_complete, rng, None).await
@@ -80,10 +82,10 @@ where
         config: &EvolutionConfig,
         is_complete: F,
         rng: &mut impl Rng,
-        snapshot: Snapshot<G>,
-    ) -> EvolutionResult<G>
+        snapshot: Snapshot,
+    ) -> EvolutionResult
     where
-        T: Strategy<G = G>,
+        T: Strategy,
         F: Fn(u64, &[f32]) -> bool,
     {
         self.run(strategy, config, is_complete, rng, Some(snapshot))
@@ -118,10 +120,10 @@ where
         config: &EvolutionConfig,
         is_complete: F,
         rng: &mut impl Rng,
-        snapshot: Option<Snapshot<G>>,
-    ) -> EvolutionResult<G>
+        snapshot: Option<Snapshot>,
+    ) -> EvolutionResult
     where
-        T: Strategy<G = G>,
+        T: Strategy,
         F: Fn(u64, &[f32]) -> bool,
     {
         // Validate configuration
@@ -141,9 +143,12 @@ where
         let settings = resolve_settings(generation_renewal_config, config.population_size);
         debug!("Running evolution with settings: {:?}", settings);
 
+        let genome_size = strategy.genome_size();
+
         self.snapshot = snapshot.unwrap_or_else(|| {
-            let genomes = get_random_genomes(config.population_size, strategy);
-            let evaluations = init_evaluations(genomes);
+            let evaluations = get_random_genomes_iter(config.population_size, genome_size, rng)
+                .into_evaluations()
+                .collect();
             Snapshot {
                 evaluations,
                 generation: 0,
@@ -185,22 +190,21 @@ where
                 break;
             }
 
-            let new_generation = self.get_new_generation(strategy, &settings, rng)?;
-            self.snapshot.evaluations = init_evaluations(new_generation);
+            self.snapshot.evaluations = self
+                .get_new_generation(genome_size, &settings, rng)?
+                .into_iter()
+                .into_evaluations()
+                .collect();
             self.snapshot.generation += 1;
         }
         Ok(self.snapshot.clone())
     }
 
-    fn get_clones<T>(
+    fn get_clones(
         &self,
-        strategy: &T,
         pool: &GeneticPool,
         rng: &mut impl Rng,
-    ) -> Result<Vec<G>, EvolutionError>
-    where
-        T: Strategy<G = G>,
-    {
+    ) -> Result<Vec<Genome>, EvolutionError> {
         let clones = if pool.count > 0 {
             let selected_indexes_iter = select(
                 &self.snapshot.evaluations,
@@ -214,7 +218,7 @@ where
                 selected_indexes_iter
                     .map(|index| {
                         let mut genome = self.snapshot.evaluations[index].genome.clone();
-                        strategy.mutate(&mut genome, pool.mutation_rate);
+                        mutate(&mut genome, pool.mutation_rate, rng);
                         genome
                     })
                     .collect()
@@ -229,15 +233,12 @@ where
         Ok(clones)
     }
 
-    fn get_offsprings<T>(
+    fn get_offsprings(
         &self,
-        strategy: &T,
+        genome_size: usize,
         pool: &GeneticPool,
         rng: &mut impl Rng,
-    ) -> Result<Vec<G>, EvolutionError>
-    where
-        T: Strategy<G = G>,
-    {
+    ) -> Result<Vec<Genome>, EvolutionError> {
         let offsprings = if pool.count > 0 {
             let selected_indexes_iter = select_couples(
                 &self.snapshot.evaluations,
@@ -250,11 +251,15 @@ where
             if pool.mutation_rate > 0.0 {
                 selected_indexes_iter
                     .map(|(p1, p2)| {
-                        let mut offspring = strategy.crossover((
-                            &self.snapshot.evaluations[p1].genome,
-                            &self.snapshot.evaluations[p2].genome,
-                        ));
-                        strategy.mutate(&mut offspring, pool.mutation_rate);
+                        let mut offspring = crossover(
+                            (
+                                &self.snapshot.evaluations[p1].genome,
+                                &self.snapshot.evaluations[p2].genome,
+                            ),
+                            genome_size,
+                            rng,
+                        );
+                        mutate(&mut offspring, pool.mutation_rate, rng);
 
                         offspring
                     })
@@ -262,10 +267,14 @@ where
             } else {
                 selected_indexes_iter
                     .map(|(p1, p2)| {
-                        strategy.crossover((
-                            &self.snapshot.evaluations[p1].genome,
-                            &self.snapshot.evaluations[p2].genome,
-                        ))
+                        crossover(
+                            (
+                                &self.snapshot.evaluations[p1].genome,
+                                &self.snapshot.evaluations[p2].genome,
+                            ),
+                            genome_size,
+                            rng,
+                        )
                     })
                     .collect()
             }
@@ -275,24 +284,21 @@ where
         Ok(offsprings)
     }
 
-    fn get_new_generation<T>(
+    fn get_new_generation(
         &self,
-        strategy: &T,
+        genome_size: usize,
         settings: &ExecutionSettings,
         rng: &mut impl Rng,
-    ) -> Result<Vec<G>, EvolutionError>
-    where
-        T: Strategy<G = G>,
-    {
+    ) -> Result<Vec<Genome>, EvolutionError> {
         // Get clones
-        let clones = self.get_clones(strategy, &settings.cloning_pool, rng)?;
+        let clones = self.get_clones(&settings.cloning_pool, rng)?;
 
         // Get offsprings
-        let offsprings = self.get_offsprings(strategy, &settings.crossover_pool, rng)?;
+        let offsprings = self.get_offsprings(genome_size, &settings.crossover_pool, rng)?;
 
         // Get random genomes
         let randoms = if settings.randoms_count > 0 {
-            get_random_genomes(settings.randoms_count, strategy)
+            get_random_genomes_iter(settings.randoms_count, genome_size, rng).collect()
         } else {
             vec![]
         };
@@ -301,11 +307,30 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ExecutionSettings {
-    cloning_pool: GeneticPool,
-    crossover_pool: GeneticPool,
-    randoms_count: usize,
+fn crossover(parents: (&Genome, &Genome), genome_size: usize, rng: &mut impl Rng) -> Genome {
+    let crossover_point = rng.gen_range(0..genome_size);
+    [&parents.0[..crossover_point], &parents.1[crossover_point..]].concat()
+}
+
+fn get_random_genomes_iter(
+    count: usize,
+    genome_size: usize,
+    rng: &mut impl Rng,
+) -> impl Iterator<Item = Genome> + '_ {
+    (0..count).map(move |_| {
+        (&mut *rng)
+            .sample_iter(Standard)
+            .take(genome_size)
+            .collect()
+    })
+}
+
+fn mutate(genome: &mut Genome, mutation_rate: f32, rng: &mut impl Rng) {
+    for part in genome.iter_mut() {
+        if rng.gen::<f32>() < mutation_rate {
+            *part = rng.gen();
+        }
+    }
 }
 
 fn resolve_settings(
@@ -328,27 +353,8 @@ fn resolve_settings(
     }
 }
 
-fn init_evaluations<G>(genomes: Vec<G>) -> Vec<Evaluation<G>> {
-    genomes
-        .into_iter()
-        .map(|genome| Evaluation {
-            genome,
-            fitness: 0f32,
-        })
-        .collect()
-}
-
-async fn run_challenge<T: Strategy>(state: &T::G, strategy: &T) -> f32 {
-    strategy.evaluate(state)
-}
-
-fn get_random_genomes<T, G>(count: usize, strategy: &T) -> Vec<G>
-where
-    T: Strategy<G = G>,
-{
-    (0..count)
-        .map(|_| strategy.generate_genome())
-        .collect::<Vec<_>>()
+async fn run_challenge<T: Strategy>(genome: &Genome, strategy: &T) -> f32 {
+    strategy.evaluate(genome)
 }
 
 #[cfg(test)]
@@ -359,12 +365,14 @@ mod tests {
     };
 
     use crate::{
+        adaptation::Strategy,
         evolution::{
-            genetic_pool::GeneticPool, EventType, EvolutionConfig, EvolutionError, EvolutionStatus,
-            GenerationRenewalConfig, GeneticRenewalParam, Snapshot,
+            evolution_engine::get_random_genomes_iter, genetic_pool::GeneticPool, EventType,
+            EvolutionConfig, EvolutionError, EvolutionStatus, GenerationRenewalConfig,
+            GeneticRenewalParam, Snapshot,
         },
         selection::SelectionType,
-        Evaluation, Strategy,
+        Evaluation, Genome,
     };
     use common::subject_observer::{Observer, Subject};
     use common_test::get_seeded_rng;
@@ -373,26 +381,20 @@ mod tests {
         mock,
         predicate::{always, eq},
     };
-    use rand::{seq::IteratorRandom, Rng};
+    use rand::{distributions::Standard, seq::IteratorRandom, Rng};
     use strum::IntoEnumIterator;
 
-    use super::{
-        get_random_genomes, init_evaluations, resolve_settings, run_challenge, EvolutionEngine,
-    };
+    use super::{resolve_settings, run_challenge, EvolutionEngine};
 
     mock! {
         TestStrategy {}
 
         impl Strategy for TestStrategy {
-            type G = Vec<u8>;
 
-            fn crossover<'a>(&self, genomes: (&'a <Self as Strategy>::G, &'a <Self as Strategy>::G)) -> <Self as Strategy>::G;
+            fn genome_size(&self) -> usize;
 
-            fn evaluate<'a>(&self, genome: &'a <Self as Strategy>::G) -> f32;
+            fn evaluate<'a>(&self, genome: &'a Genome) -> f32;
 
-            fn generate_genome(&self) -> <Self as Strategy>::G;
-
-            fn mutate(&self, genome: &mut <Self as Strategy>::G, mutation_rate: f32);
         }
 
     }
@@ -400,8 +402,8 @@ mod tests {
     mock! {
         TestObserver {}
 
-        impl Observer<EvolutionEngine<Vec<u8>>, EventType> for TestObserver {
-            fn update(&self, source: &EvolutionEngine<Vec<u8>>, event: EventType);
+        impl Observer<EvolutionEngine, EventType> for TestObserver {
+            fn update(&self, source: &EvolutionEngine, event: EventType);
         }
 
     }
@@ -410,7 +412,7 @@ mod tests {
     fn test_evolution_engine_halt() -> Result<(), EvolutionError> {
         // Given
         let mut rng = get_seeded_rng().unwrap();
-        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let mut engine = EvolutionEngine::default();
         let not_running = EvolutionStatus::iter()
             .filter(|s| *s != EvolutionStatus::Running)
             .choose(&mut rng)
@@ -440,7 +442,7 @@ mod tests {
     fn test_evolution_engine_change_status() -> Result<(), EvolutionError> {
         // Given
         let mut rng = get_seeded_rng().unwrap();
-        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let mut engine = EvolutionEngine::default();
         let statuses = EvolutionStatus::iter().choose_multiple(&mut rng, 3);
         let mut observer = MockTestObserver::new();
         observer.expect_update().times(2).return_const(());
@@ -481,6 +483,7 @@ mod tests {
         // Given
         let mut rng = get_seeded_rng().unwrap();
         let population_size = rng.gen_range(10..128);
+        let genome_size = rng.gen_range(1usize..10);
         let mut strategy = MockTestStrategy::new();
         let config = EvolutionConfig {
             generation_renewal_config: Some(GenerationRenewalConfig {
@@ -493,7 +496,7 @@ mod tests {
             }),
             population_size,
         };
-        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let mut engine = EvolutionEngine::default();
 
         // When
         let result = block_on(engine.run(
@@ -516,14 +519,11 @@ mod tests {
             population_size,
         };
         strategy
-            .expect_generate_genome()
-            .times(2 * population_size)
-            .return_const(vec![1]);
-        strategy
             .expect_evaluate()
             .times(2 * population_size)
             .return_const(0.5);
-        let mut engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        strategy.expect_genome_size().return_const(genome_size);
+        let mut engine = EvolutionEngine::default();
         let observer = build_observer_mock(&vec![
             EventType::StatusChanged(EvolutionStatus::Initializing),
             EventType::StatusChanged(EvolutionStatus::Running),
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn test_evolution_engine_get_clones() {
         let mut rng = get_seeded_rng().unwrap();
-        let mut engine = EvolutionEngine::<Vec<u8>>::default();
+        let mut engine = EvolutionEngine::default();
         engine.snapshot = Snapshot {
             evaluations: vec![
                 Evaluation {
@@ -592,11 +592,9 @@ mod tests {
             mutation_rate: 0.0,
             selection_type: SelectionType::Chance,
         };
-        let mut strategy = MockTestStrategy::new();
-        strategy.expect_mutate().times(0).return_const(());
 
         // When
-        let result = engine.get_clones(&strategy, &pool, &mut rng).unwrap();
+        let result = engine.get_clones(&pool, &mut rng).unwrap();
 
         // Then
         assert_eq!(
@@ -611,11 +609,9 @@ mod tests {
             mutation_rate: 0.5,
             selection_type: SelectionType::Chance,
         };
-        let mut strategy = MockTestStrategy::new();
-        strategy.expect_mutate().times(2).return_const(());
 
         // When
-        let result = engine.get_clones(&strategy, &pool, &mut rng).unwrap();
+        let result = engine.get_clones(&pool, &mut rng).unwrap();
 
         // Then
         assert_eq!(
@@ -628,20 +624,33 @@ mod tests {
     #[test]
     fn test_evolution_engine_get_offsprings() {
         let mut rng = get_seeded_rng().unwrap();
-        let mut engine = EvolutionEngine::<Vec<u8>>::default();
+        let genome_size = rng.gen_range(1usize..10);
+        let mut engine = EvolutionEngine::default();
         engine.snapshot = Snapshot {
             evaluations: vec![
                 Evaluation {
                     fitness: 0.5,
-                    genome: vec![3, 3],
+                    genome: rng
+                        .clone()
+                        .sample_iter(Standard)
+                        .take(genome_size)
+                        .collect(),
                 },
                 Evaluation {
                     fitness: 0.2,
-                    genome: vec![5, 1],
+                    genome: rng
+                        .clone()
+                        .sample_iter(Standard)
+                        .take(genome_size)
+                        .collect(),
                 },
                 Evaluation {
                     fitness: 0.8,
-                    genome: vec![6, 3],
+                    genome: rng
+                        .clone()
+                        .sample_iter(Standard)
+                        .take(genome_size)
+                        .collect(),
                 },
             ],
             generation: 0,
@@ -653,15 +662,9 @@ mod tests {
             mutation_rate: 0.0,
             selection_type: SelectionType::Chance,
         };
-        let mut strategy = MockTestStrategy::new();
-        strategy.expect_mutate().times(0).return_const(());
-        strategy
-            .expect_crossover()
-            .times(pool.count)
-            .return_const(vec![]);
 
         // When
-        let result = engine.get_offsprings(&strategy, &pool, &mut rng).unwrap();
+        let result = engine.get_offsprings(genome_size, &pool, &mut rng).unwrap();
 
         // Then
         assert_eq!(
@@ -676,15 +679,9 @@ mod tests {
             mutation_rate: 0.5,
             selection_type: SelectionType::Chance,
         };
-        let mut strategy = MockTestStrategy::new();
-        strategy.expect_mutate().times(pool.count).return_const(());
-        strategy
-            .expect_crossover()
-            .times(pool.count)
-            .return_const(vec![]);
 
         // When
-        let result = engine.get_offsprings(&strategy, &pool, &mut rng).unwrap();
+        let result = engine.get_offsprings(genome_size, &pool, &mut rng).unwrap();
 
         // Then
         assert_eq!(
@@ -697,13 +694,35 @@ mod tests {
     #[test]
     fn test_evolution_engine_snapshot_should_be_defaulted_before_run() {
         // Given
-        let engine: EvolutionEngine<Vec<u8>> = EvolutionEngine::default();
+        let engine = EvolutionEngine::default();
 
         // When
         let result = engine.snapshot();
 
         // Then
-        assert_eq!(Snapshot::<Vec<u8>>::default(), result);
+        assert_eq!(Snapshot::default(), result);
+    }
+
+    #[test]
+    fn test_get_random_genomes_iter() {
+        // Given
+        let mut rng = get_seeded_rng().unwrap();
+        let count = rng.gen_range(0..64);
+        let genome_size = rng.gen_range(0..10);
+
+        // When
+        let result: Vec<Genome> = get_random_genomes_iter(count, genome_size, &mut rng).collect();
+
+        // Then
+        assert_eq!(
+            count,
+            result.len(),
+            "Should return the required count of genomes"
+        );
+        assert!(
+            result.iter().all(|g| g.len() == genome_size),
+            "Should generate genomes with the required length"
+        );
     }
 
     #[test]
@@ -726,55 +745,35 @@ mod tests {
     }
 
     #[test]
-    fn test_init_evaluations() {
-        // Given
-        let mut rng = get_seeded_rng().unwrap();
-        let size = rng.gen_range(0..10);
-        let genomes = (0..size).map(|_| rng.gen()).collect::<Vec<i32>>();
-
-        // When
-        let result = init_evaluations(genomes.clone());
-
-        // Then
-        assert_eq!(result.len(), genomes.len());
-        let result_states = result.iter().map(|e| e.genome).collect::<Vec<_>>();
-        assert_eq!(result_states, genomes);
-        assert!(result.iter().map(|e| e.fitness).all(|x| x == 0f32));
-    }
-
-    #[test]
     fn test_run_challenges() {
         // Given
-        let state: Vec<u8> = vec![1, 2];
+        let genome = vec![1, 2];
         let mut strategy = MockTestStrategy::new();
         let fitness = 0.5f32;
         strategy
             .expect_evaluate()
-            .with(eq(state.clone()))
+            .with(eq(genome.clone()))
             .return_const(fitness);
 
         // When
-        let result = block_on(run_challenge(&state, &strategy));
+        let result = block_on(run_challenge(&genome, &strategy));
 
         // Then
         assert_eq!(fitness, result, "Should call strategy evaluation");
     }
 
     #[test]
-    fn test_get_random_genomes() {
+    fn test_generate_genomes() {
         // Given
-        let count = 3;
-        let mut strategy = MockTestStrategy::new();
-        strategy
-            .expect_generate_genome()
-            .times(count)
-            .returning(|| vec![]);
+        let mut rng = get_seeded_rng().unwrap();
+        let count = rng.gen_range(0..10);
+        let len = rng.gen_range(0..10);
 
         // When
-        let result = get_random_genomes(count, &strategy);
+        let result: Vec<Genome> = get_random_genomes_iter(count, len, &mut rng).collect();
 
         // Then
-        assert_eq!(count, result.len(), "Should relay on strategy");
+        assert_eq!(count, result.len(), "Should generate the requested count");
     }
 
     fn build_observer_mock(events: &[EventType]) -> MockTestObserver {

@@ -36,15 +36,12 @@ pub enum SelectionType {
     Weight,
 }
 
-pub fn select<G>(
-    evaluations: &[Evaluation<G>],
+pub fn select(
+    evaluations: &[Evaluation],
     selection_count: usize,
     selection_type: SelectionType,
     rng: &mut impl Rng,
-) -> SelectionResult
-where
-    G: Clone,
-{
+) -> SelectionResult {
     let mut random = Random::new(rng);
     match selection_type {
         SelectionType::Chance => select_by_chance(evaluations, selection_count, &mut random),
@@ -58,8 +55,8 @@ where
     }
 }
 
-pub fn select_couples<G: Clone>(
-    evaluations: &[Evaluation<G>],
+pub fn select_couples(
+    evaluations: &[Evaluation],
     couples_count: usize,
     selection_type: SelectionType,
     rng: &mut impl Rng,
@@ -100,19 +97,19 @@ mod tests {
     fn test_select() {
         let evaluations = vec![
             Evaluation {
-                genome: 3,
+                genome: vec![3],
                 fitness: 0.1,
             },
             Evaluation {
-                genome: 5,
+                genome: vec![5],
                 fitness: 0.4,
             },
             Evaluation {
-                genome: 4,
+                genome: vec![4],
                 fitness: 0.5,
             },
             Evaluation {
-                genome: 8,
+                genome: vec![8],
                 fitness: 0.9,
             },
         ];
@@ -243,19 +240,19 @@ mod tests {
     fn test_select_couples() {
         let evaluations = vec![
             Evaluation {
-                genome: 3,
+                genome: vec![3],
                 fitness: 0.1,
             },
             Evaluation {
-                genome: 5,
+                genome: vec![5],
                 fitness: 0.4,
             },
             Evaluation {
-                genome: 4,
+                genome: vec![4],
                 fitness: 0.5,
             },
             Evaluation {
-                genome: 8,
+                genome: vec![8],
                 fitness: 0.9,
             },
         ];

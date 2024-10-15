@@ -7,15 +7,12 @@ use crate::{
 
 use super::rng_wrapper::RngWrapper;
 
-pub fn select_by_rank<G>(
-    evaluations: &[Evaluation<G>],
+pub fn select_by_rank(
+    evaluations: &[Evaluation],
     expected_count: usize,
     max_rank: usize,
     rng: &mut impl RngWrapper,
-) -> SelectionResult
-where
-    G: Clone,
-{
+) -> SelectionResult {
     // Cannot select above max_rank
     if expected_count > max_rank {
         return Err(SelectionError::OutOfRank(expected_count, max_rank));
@@ -29,7 +26,7 @@ where
     }
 
     let selected_indexes = if expected_count > 0 {
-        let mut indexes = (0..len).collect::<Vec<_>>();
+        let mut indexes: Vec<usize> = (0..len).collect();
         indexes.sort_by(|&a, &b| {
             evaluations[b]
                 .fitness
@@ -63,19 +60,19 @@ mod tests {
     fn select_by_rank_should_return_result() {
         let evaluations = vec![
             Evaluation {
-                genome: 'a',
+                genome: vec![1],
                 fitness: 2.0,
             },
             Evaluation {
-                genome: 'b',
+                genome: vec![2],
                 fitness: 5.0,
             },
             Evaluation {
-                genome: 'c',
+                genome: vec![3],
                 fitness: 1.0,
             },
             Evaluation {
-                genome: 'd',
+                genome: vec![4],
                 fitness: 1.0,
             },
         ];
@@ -91,11 +88,11 @@ mod tests {
     fn select_by_rank_should_return_error_when_not_valid_expected_count() {
         let evaluations = vec![
             Evaluation {
-                genome: 'a',
+                genome: vec![1],
                 fitness: 1.0,
             },
             Evaluation {
-                genome: 'b',
+                genome: vec![2],
                 fitness: 1.0,
             },
         ];
@@ -119,7 +116,7 @@ mod tests {
     #[test]
     fn select_by_rank_should_return_empty_collection_when_expected_count_is_0() {
         let evaluations = vec![Evaluation {
-            genome: 'a',
+            genome: vec![1],
             fitness: 1.0,
         }];
 

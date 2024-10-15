@@ -19,11 +19,8 @@ impl GraphiteGateway {
     }
 }
 
-impl<State> Observer<EvolutionEngine<State>, EventType> for GraphiteGateway
-where
-    State: Clone,
-{
-    fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
+impl Observer<EvolutionEngine, EventType> for GraphiteGateway {
+    fn update(&self, source: &EvolutionEngine, event: EventType) {
         if event == EventType::Evaluated {
             let snapshot = source.snapshot();
             if let Some(max_fitness) = snapshot

@@ -20,11 +20,8 @@ impl StatsdGateway {
     }
 }
 
-impl<State> Observer<EvolutionEngine<State>, EventType> for StatsdGateway
-where
-    State: Clone,
-{
-    fn update(&self, source: &EvolutionEngine<State>, event: EventType) {
+impl Observer<EvolutionEngine, EventType> for StatsdGateway {
+    fn update(&self, source: &EvolutionEngine, event: EventType) {
         if event == EventType::Evaluated {
             let population_info = source.snapshot();
             if let Some(max_fitness) = population_info

@@ -75,12 +75,12 @@ impl<T> From<PoisonError<T>> for EvolutionError {
     }
 }
 
-pub type EvolutionResult<State> = Result<Snapshot<State>, EvolutionError>;
+pub type EvolutionResult = Result<Snapshot, EvolutionError>;
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Snapshot<G> {
+pub struct Snapshot {
     pub generation: u64,
-    pub evaluations: Vec<Evaluation<G>>,
+    pub evaluations: Vec<Evaluation>,
 }
 
 fn validate_generation_renewal_config(
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_default() {
-        let result = Snapshot::<u8>::default();
+        let result = Snapshot::default();
 
         assert_eq!(
             Snapshot {

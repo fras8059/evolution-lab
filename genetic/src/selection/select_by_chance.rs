@@ -7,14 +7,11 @@ use crate::{
 
 use super::rng_wrapper::RngWrapper;
 
-pub fn select_by_chance<G>(
-    evaluations: &[Evaluation<G>],
+pub fn select_by_chance(
+    evaluations: &[Evaluation],
     expected_count: usize,
     rng: &mut impl RngWrapper,
-) -> SelectionResult
-where
-    G: Clone,
-{
+) -> SelectionResult {
     let len = evaluations.len();
 
     // Cannot select above evaluations count
@@ -23,7 +20,7 @@ where
     }
 
     let selected_indexes = if expected_count > 0 {
-        let mut indexes = (0..len).collect::<Vec<_>>();
+        let mut indexes: Vec<usize> = (0..len).collect();
         let selection_count = min(expected_count, len - 1);
         for i in 0..selection_count {
             let selected_index = rng.gen_range(i..len);
@@ -50,15 +47,15 @@ mod tests {
     fn select_by_chance_should_return_result() {
         let evaluations = vec![
             Evaluation {
-                genome: 'a',
+                genome: vec![1],
                 fitness: 1.0,
             },
             Evaluation {
-                genome: 'b',
+                genome: vec![2],
                 fitness: 2.0,
             },
             Evaluation {
-                genome: 'c',
+                genome: vec![3],
                 fitness: 1.0,
             },
         ];
@@ -73,7 +70,7 @@ mod tests {
     #[test]
     fn select_by_chance_should_return_error_when_not_valid_expected_count() {
         let evaluations = vec![Evaluation {
-            genome: 'a',
+            genome: vec![1],
             fitness: 1.0,
         }];
 
@@ -85,7 +82,7 @@ mod tests {
     #[test]
     fn select_by_chance_should_return_empty_collection_when_expected_count_is_0() {
         let evaluations = vec![Evaluation {
-            genome: 'a',
+            genome: vec![1],
             fitness: 1.0,
         }];
 

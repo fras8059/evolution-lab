@@ -79,7 +79,7 @@ pub async fn run(config: Data<AppConfig>, parameters: Json<Parameters>) -> impl 
     engine.register_observer(gateway.clone());
 
     let result = block_on(engine.start(
-        &MyStrategy::from_entropy(bytes),
+        &MyStrategy::new(bytes),
         &settings,
         |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
         &mut thread_rng(),
@@ -99,7 +99,7 @@ pub async fn run(config: Data<AppConfig>, parameters: Json<Parameters>) -> impl 
                     .enumerate()
                     .filter(|e| e.1.fitness >= threshold)
                     .map(|e| (e.0, unsafe {
-                        String::from_utf8_unchecked(e.1.genome.value.clone())
+                        String::from_utf8_unchecked(e.1.genome.clone())
                     }))
                     .collect::<Vec<_>>()
             ))

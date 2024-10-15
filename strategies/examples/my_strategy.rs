@@ -14,7 +14,7 @@ use futures::executor::block_on;
 
 use common::subject_observer::{Observer, Subject};
 use simple_logger::SimpleLogger;
-use strategies::my_strategy::{MyState, MyStrategy};
+use strategies::my_strategy::MyStrategy;
 
 struct MyObserver {
     log_scope: LogScope,
@@ -28,8 +28,8 @@ impl MyObserver {
     }
 }
 
-impl Observer<EvolutionEngine<MyState>, EventType> for MyObserver {
-    fn update(&self, source: &EvolutionEngine<MyState>, event: EventType) {
+impl Observer<EvolutionEngine, EventType> for MyObserver {
+    fn update(&self, source: &EvolutionEngine, event: EventType) {
         if event == EventType::Evaluated {
             let population_info = source.snapshot();
             //trace!("{:?}:{:?}", event, population_info);
@@ -69,7 +69,7 @@ fn main() {
     runner.register_observer(observer.clone());
 
     let result = block_on(runner.start(
-        &MyStrategy::from_entropy(bytes),
+        &MyStrategy::new(bytes),
         &settings,
         |_, fitnesses| fitnesses.iter().any(|&fitness| fitness >= threshold),
         &mut thread_rng(),
@@ -87,7 +87,7 @@ fn main() {
                 .enumerate()
                 .filter(|e| e.1.fitness >= threshold)
                 .map(|e| (e.0, unsafe {
-                    String::from_utf8_unchecked(e.1.genome.value.clone())
+                    String::from_utf8_unchecked(e.1.genome.clone())
                 }))
                 .collect::<Vec<_>>()
         ),
