@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = { workspace = true }
 genetic = { path = "../genetic" }
 rand = { workspace = true }
 
 [dev-dependencies]
 common = { path = "../common" }
+common-test = { path = "../common-test" }
 dipstick = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
