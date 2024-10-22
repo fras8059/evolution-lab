@@ -173,7 +173,10 @@ impl EvolutionEngine {
                 .iter()
                 .map(|evaluation| run_challenge(&evaluation.genome, strategy));
 
-            let fitnesses = join_all(challenge_runs).await;
+            let fitnesses = join_all(challenge_runs)
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, EvolutionError>>()?;
 
             fitnesses
                 .iter()
@@ -353,8 +356,13 @@ fn resolve_settings(
     }
 }
 
-async fn run_challenge<T: Strategy>(genome: &Genome, strategy: &T) -> f32 {
-    strategy.evaluate(genome)
+async fn run_challenge<T: Strategy>(genome: &Genome, strategy: &T) -> Result<f32, EvolutionError> {
+    let fitness = strategy.evaluate(genome);
+    if (0.0..=1.0).contains(&fitness) {
+        Ok(fitness)
+    } else {
+        Err(EvolutionError::InvalidEvaluation(fitness))
+    }
 }
 
 #[cfg(test)]
@@ -747,16 +755,33 @@ mod tests {
     #[test]
     fn test_run_challenges() {
         // Given
+        let mut rng = get_seeded_rng().unwrap();
         let genome = vec![1, 2];
+
+        // When
         let mut strategy = MockTestStrategy::new();
-        let fitness = 0.5f32;
+        let fitness = 2.0;
         strategy
             .expect_evaluate()
             .with(eq(genome.clone()))
             .return_const(fitness);
 
-        // When
         let result = block_on(run_challenge(&genome, &strategy));
+        // Then
+        assert!(
+            matches!(result, Err(EvolutionError::InvalidEvaluation(_))),
+            "Should return error when evaluation is not standardized"
+        );
+
+        // When
+        let mut strategy = MockTestStrategy::new();
+        let fitness = rng.gen_range(0.0..=1.0);
+        strategy
+            .expect_evaluate()
+            .with(eq(genome.clone()))
+            .return_const(fitness);
+
+        let result = block_on(run_challenge(&genome, &strategy)).unwrap();
 
         // Then
         assert_eq!(fitness, result, "Should call strategy evaluation");

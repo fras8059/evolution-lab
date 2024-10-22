@@ -4,7 +4,7 @@ use common::subject_observer::Observer;
 use dipstick::{Graphite, Input};
 use genetic::evolution::{EventType, EvolutionEngine};
 
-use super::{BEST_EVAL, MY_PROXY};
+use super::{MAX, MY_PROXY};
 
 pub struct GraphiteGateway {}
 
@@ -29,7 +29,7 @@ impl Observer<EvolutionEngine, EventType> for GraphiteGateway {
                 .map(|e| e.fitness)
                 .reduce(f32::max)
             {
-                BEST_EVAL.value(max_fitness);
+                MAX.value(max_fitness);
             }
         }
     }

@@ -23,5 +23,6 @@ impl Strategy for MyStrategy {
             .zip(self.target.iter())
             .filter(|(a, b)| a == b)
             .count() as f32
+            / self.target.len() as f32
     }
 }

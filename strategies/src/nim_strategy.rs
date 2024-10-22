@@ -3,11 +3,15 @@ use genetic::adaptation::Strategy;
 
 const MAX_STICK_CHOICE: u8 = 3;
 const MIN_STICK_CHOICE: u8 = 1;
-
 const MOD_CHOICE: u8 = MAX_STICK_CHOICE + MIN_STICK_CHOICE;
 
+const CODES_COUNT: u16 = u8::MAX as u16 + 1;
+const ACTIONS_COUNT: u8 = MAX_STICK_CHOICE - MIN_STICK_CHOICE + 1;
+const ACTIONS_COUNT_U16: u16 = ACTIONS_COUNT as u16;
+
 pub struct NimStrategy {
-    best_choices: Vec<u8>,
+    best_actions: Vec<u8>,
+    normalization_factor: f32,
 }
 
 impl NimStrategy {
@@ -15,34 +19,43 @@ impl NimStrategy {
         if stick_count <= MIN_STICK_CHOICE {
             bail!("Invalid initial stick count: {stick_count}; It must be greater than {MIN_STICK_CHOICE}");
         }
+
+        let best_actions = get_best_actions(stick_count);
+        let normalization_factor = (ACTIONS_COUNT as usize * best_actions.len()) as f32;
         Ok(NimStrategy {
-            best_choices: do_best_choices(stick_count),
+            best_actions,
+            normalization_factor,
         })
     }
 }
 
 impl Strategy for NimStrategy {
     fn genome_size(&self) -> usize {
-        self.best_choices.len()
+        self.best_actions.len()
     }
 
     fn evaluate(&self, genome: &genetic::Genome) -> f32 {
         genome
             .iter()
-            .zip(self.best_choices.iter())
-            .map(|(&a, &b)| ((b as i8 - a as i8).abs()) as f32)
-            .sum()
+            .zip(self.best_actions.iter())
+            .map(|(&gene, &best)| {
+                let expression =
+                    ((gene as u16 * ACTIONS_COUNT_U16 + CODES_COUNT - 1) / CODES_COUNT) as u8;
+                (ACTIONS_COUNT - best.abs_diff(expression)) as f32
+            })
+            .sum::<f32>()
+            / self.normalization_factor
     }
 }
 
-fn do_best_choices(remaining_stick_count: u8) -> Vec<u8> {
+fn get_best_actions(remaining_stick_count: u8) -> Vec<u8> {
     (MIN_STICK_CHOICE + 1..=remaining_stick_count)
         .rev()
-        .map(do_best_choice)
+        .map(get_best_action)
         .collect()
 }
 
-fn do_best_choice(remaining_stick_count: u8) -> u8 {
+fn get_best_action(remaining_stick_count: u8) -> u8 {
     if remaining_stick_count % MOD_CHOICE == MIN_STICK_CHOICE {
         MIN_STICK_CHOICE
     } else {
@@ -56,7 +69,7 @@ mod tests {
     use genetic::adaptation::Strategy;
     use rand::Rng;
 
-    use super::{do_best_choices, NimStrategy, MIN_STICK_CHOICE, MOD_CHOICE};
+    use super::{get_best_actions, NimStrategy, MIN_STICK_CHOICE, MOD_CHOICE};
 
     #[test]
     fn test_new() {
@@ -71,8 +84,8 @@ mod tests {
         let stick_count = rng.gen_range(MIN_STICK_CHOICE + 1..128);
         let result = NimStrategy::new(stick_count).unwrap();
         assert_eq!(
-            result.best_choices,
-            do_best_choices(stick_count),
+            result.best_actions,
+            get_best_actions(stick_count),
             "Should initialized best choices"
         );
     }
@@ -92,7 +105,26 @@ mod tests {
     }
 
     #[test]
-    fn test_do_best_choices() {
+    fn test_evaluate() {
+        // Given
+        let strategy = NimStrategy::new(4).unwrap();
+
+        // When
+        let result = strategy.evaluate(&vec![200, 100, 50]);
+        // Then
+        assert_eq!(
+            1.0, result,
+            "Should return maximum fitness when genome leads to get best actions"
+        );
+
+        // When
+        let result = strategy.evaluate(&vec![50, 50, 50]);
+        // Then
+        assert_eq!(2.0 / 3.0, result, "Should return right fitness");
+    }
+
+    #[test]
+    fn test_choose_best_actions() {
         let mut rng = get_seeded_rng().unwrap();
         let stick_count = rng.gen_range(MIN_STICK_CHOICE + 1..128);
         let expected: Vec<_> = (MIN_STICK_CHOICE + 1..=stick_count)
@@ -106,7 +138,7 @@ mod tests {
             })
             .collect();
 
-        let result = do_best_choices(stick_count);
-        assert_eq!(expected, result, "Should return the best choices");
+        let result = get_best_actions(stick_count);
+        assert_eq!(expected, result, "Should return the best actions");
     }
 }

@@ -59,6 +59,8 @@ pub struct EvolutionConfig {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum EvolutionError {
+    #[error("An evaluation must be between 0 and 1, got: {0}")]
+    InvalidEvaluation(f32),
     #[error("Invalid selection: {0}")]
     InvalidSelection(#[from] SelectionError),
     #[error("Settings are not valid: {0}")]

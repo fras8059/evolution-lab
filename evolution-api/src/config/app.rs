@@ -12,6 +12,7 @@ pub struct AppConfig {
     pub service_port: u16,
     pub statsd_host: String,
     pub statsd_port: u16,
+    pub statsd_factor: f32,
 }
 
 impl AppConfig {

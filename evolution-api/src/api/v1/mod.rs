@@ -72,8 +72,13 @@ pub async fn run(config: Data<AppConfig>, parameters: Json<Parameters>) -> impl 
     };
     debug!("Running evolution with configuration: {:?}", settings);
 
-    let gateway =
-        Rc::new(StatsdGateway::new((config.statsd_host.clone(), config.statsd_port)).unwrap());
+    let gateway = Rc::new(
+        StatsdGateway::new(
+            (config.statsd_host.clone(), config.statsd_port),
+            config.statsd_factor,
+        )
+        .unwrap(),
+    );
 
     let mut engine = EvolutionEngine::default();
     engine.register_observer(gateway.clone());

@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 genetic = { path = "../genetic" }
+const_format = { workspace = true }
 dipstick = { workspace = true }
 log = { workspace = true }
